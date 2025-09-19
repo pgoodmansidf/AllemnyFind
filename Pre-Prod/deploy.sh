@@ -816,13 +816,38 @@ install_nodejs() {
         local node_version=$(node --version)
         log "INFO" "Node.js already installed: $node_version"
 
-        # Verify Node.js is working and has npm
-        if node --version &> /dev/null && command -v npm &> /dev/null; then
-            log "SUCCESS" "Node.js is functional"
-            return 0
-        else
-            log "WARN" "Node.js installed but not functional, attempting to repair..."
+        # Enhanced verification with PATH refresh and debugging
+        hash -r  # Refresh PATH cache
+
+        # Wait a moment for PATH to update
+        sleep 2
+
+        local node_check=$(command -v node 2>/dev/null)
+        local npm_check=$(command -v npm 2>/dev/null)
+
+        log "DEBUG" "Node.js verification: node=$node_check, npm=$npm_check"
+
+        if [ -n "$node_check" ] && node --version &> /dev/null; then
+            if [ -n "$npm_check" ] && npm --version &> /dev/null; then
+                log "SUCCESS" "Node.js is functional"
+                return 0
+            else
+                log "WARN" "Node.js found but npm is missing or not functional"
+                # Try to install npm separately
+                if command -v apt &> /dev/null; then
+                    sudo apt-get install -y npm 2>/dev/null || true
+                fi
+                # Refresh and try again
+                hash -r
+                sleep 2
+                if command -v npm &> /dev/null && npm --version &> /dev/null; then
+                    log "SUCCESS" "Node.js is functional after npm repair"
+                    return 0
+                fi
+            fi
         fi
+
+        log "WARN" "Node.js installed but not functional, attempting to repair..."
     fi
 
     log "INFO" "Installing Node.js with bulletproof fallback mechanisms..."
@@ -861,9 +886,20 @@ install_nodejs() {
                     # Ubuntu's nodejs package sometimes installs as 'nodejs' instead of 'node'
                     if ! command -v node &> /dev/null && command -v nodejs &> /dev/null; then
                         sudo ln -sf /usr/bin/nodejs /usr/bin/node
+                        sudo ln -sf /usr/bin/nodejs /usr/local/bin/node
                     fi
 
-                    if command -v node &> /dev/null; then
+                    # Ensure npm is available in standard locations
+                    if command -v npm &> /dev/null && ! [ -x "/usr/local/bin/npm" ]; then
+                        sudo ln -sf "$(command -v npm)" /usr/local/bin/npm
+                    fi
+
+                    # Refresh PATH and verify
+                    hash -r
+                    export PATH="/usr/local/bin:$PATH"
+                    sleep 2
+
+                    if command -v node &> /dev/null && command -v npm &> /dev/null; then
                         log "SUCCESS" "Node.js installed using apt package manager"
                         return 0
                     fi
@@ -941,11 +977,19 @@ install_nodejs() {
             log "INFO" "Installing Node.js using snap..."
 
             if retry_with_backoff 3 10 "sudo snap install node --classic"; then
+                # Wait for snap to settle
+                sleep 5
+
                 # Create symlinks to standard locations
                 sudo ln -sf /snap/bin/node /usr/local/bin/node 2>/dev/null || true
                 sudo ln -sf /snap/bin/npm /usr/local/bin/npm 2>/dev/null || true
 
-                if command -v node &> /dev/null; then
+                # Add snap bin to PATH
+                export PATH="/snap/bin:/usr/local/bin:$PATH"
+                hash -r
+                sleep 2
+
+                if command -v node &> /dev/null && command -v npm &> /dev/null; then
                     log "SUCCESS" "Node.js installed using snap"
                     return 0
                 fi
@@ -1000,15 +1044,63 @@ install_nodejs() {
         log "INFO" "Trying installation method: $method"
 
         if $method; then
-            # Verify installation
-            if command -v node &> /dev/null && command -v npm &> /dev/null; then
-                local node_version=$(node --version 2>/dev/null || echo "unknown")
-                local npm_version=$(npm --version 2>/dev/null || echo "unknown")
-                log "SUCCESS" "Node.js installed successfully using $method (Node: $node_version, npm: $npm_version)"
-                return 0
-            else
-                log "WARN" "Node.js installation completed but verification failed for method: $method"
-            fi
+            # Enhanced verification with PATH refresh and debugging
+            log "INFO" "Verifying $method installation..."
+
+            # Refresh PATH cache and wait for changes to take effect
+            hash -r
+            source /etc/environment 2>/dev/null || true
+            export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+            sleep 3
+
+            # Debug current PATH and command locations
+            local node_path=$(command -v node 2>/dev/null || echo "not found")
+            local npm_path=$(command -v npm 2>/dev/null || echo "not found")
+
+            log "DEBUG" "After $method: node at '$node_path', npm at '$npm_path'"
+
+            # Enhanced verification with multiple attempts
+            local verify_attempts=0
+            while [ $verify_attempts -lt 3 ]; do
+                if command -v node &> /dev/null && node --version &> /dev/null; then
+                    # Node.js is working, now check for npm
+                    if command -v npm &> /dev/null && npm --version &> /dev/null; then
+                        local node_version=$(node --version 2>/dev/null || echo "unknown")
+                        local npm_version=$(npm --version 2>/dev/null || echo "unknown")
+                        log "SUCCESS" "Node.js installed successfully using $method (Node: $node_version, npm: $npm_version)"
+                        return 0
+                    else
+                        # Node works but npm is missing - try to fix npm
+                        log "WARN" "Node.js works but npm missing, attempting to install npm..."
+
+                        case $PACKAGE_MANAGER in
+                            "apt")
+                                sudo apt-get install -y npm 2>/dev/null || true
+                                ;;
+                            "yum"|"dnf")
+                                sudo $INSTALL_CMD npm 2>/dev/null || true
+                                ;;
+                        esac
+
+                        # Try alternative npm locations
+                        for npm_location in "/usr/bin/npm" "/usr/local/bin/npm" "/snap/bin/npm" "$HOME/.nvm/versions/node/*/bin/npm"; do
+                            if [ -x "$npm_location" ]; then
+                                sudo ln -sf "$npm_location" /usr/local/bin/npm 2>/dev/null || true
+                                break
+                            fi
+                        done
+
+                        hash -r
+                        sleep 2
+                    fi
+                fi
+
+                ((verify_attempts++))
+                [ $verify_attempts -lt 3 ] && sleep 2
+            done
+
+            log "WARN" "Node.js installation completed but verification failed for method: $method"
+            log "DEBUG" "Final verification: node=$(command -v node 2>/dev/null || echo 'not found'), npm=$(command -v npm 2>/dev/null || echo 'not found')"
         fi
 
         log "WARN" "Installation method $method failed, trying next method..."
