@@ -12,7 +12,6 @@ pydantic
 pydantic-settings
 pydantic[email]
 
----
 # Database and ORM
 sqlalchemy
 alembic
@@ -21,7 +20,6 @@ pgvector
 lancedb
 tantivy
 
----
 # Background and Asynchronous Processing
 celery
 redis
@@ -30,7 +28,6 @@ gevent
 agno
 watchdog
 
----
 # AI and Document Processing
 groq
 ollama
@@ -48,7 +45,6 @@ rank_bm25
 striprtf
 textract
 
----
 # File and Document Handling
 PyPDF2
 pdfplumber
@@ -67,12 +63,9 @@ pi_heif
 six
 pathlib2
 
----
 # Data and Search
 pandas
 duckduckgo-search
-
----
 # Have to downgrade to allow text textract and striprtf : C:\Projects\Allemny-Find-V2\venv\Scripts\python.exe -m pip install --upgrade pip<24.1
 #pip install pypdf
 # eventlet
