@@ -73,6 +73,28 @@ find_available_port() {
     return 1
 }
 
+# Function to find available port for frontend (must be 3001, 3002, or 3003)
+find_frontend_port() {
+    local service_name="Frontend"
+    local frontend_ports=(3001 3002 3003)
+
+    echo -e "${BLUE}Finding available port for $service_name (must be 3001, 3002, or 3003)...${NC}" >&2
+
+    for port in "${frontend_ports[@]}"; do
+        if check_port $port; then
+            echo -e "${GREEN}✓ Port $port is available for $service_name${NC}" >&2
+            echo $port
+            return 0
+        else
+            echo -e "${YELLOW}  Port $port is in use, trying next...${NC}" >&2
+        fi
+    done
+
+    echo -e "${RED}✗ Could not find available port for $service_name - all required ports (3001, 3002, 3003) are in use${NC}" >&2
+    echo -e "${YELLOW}Please stop services using ports 3001-3003 or choose a different server${NC}" >&2
+    return 1
+}
+
 # Function to create or update .env file with detected ports
 update_env_file() {
     local frontend_port=$1
@@ -185,11 +207,11 @@ display_port_summary() {
 
 # Main port detection function
 main() {
-    echo -e "${BLUE}🚀 Allemny Find V2 - Port Detection & Configuration${NC}"
-    echo -e "${BLUE}===================================================${NC}\n"
+    echo -e "${BLUE}🚀 Allemny Find - Port Detection & Configuration${NC}"
+    echo -e "${BLUE}================================================${NC}\n"
 
     # Detect available ports for each service
-    frontend_port=$(find_available_port $DEFAULT_FRONTEND_PORT "Frontend")
+    frontend_port=$(find_frontend_port)
     if [ $? -ne 0 ]; then
         echo -e "${RED}Failed to find available port for Frontend${NC}"
         exit 1

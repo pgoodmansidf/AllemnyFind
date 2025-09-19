@@ -30,10 +30,10 @@ MIN_DISK_GB=10
 print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════════╗"
-    echo "║                    🚀 Allemny Find V2 🚀                     ║"
+    echo "║                     🚀 Allemny Find 🚀                       ║"
     echo "║                   One-Command Deployment                       ║"
     echo "║                                                               ║"
-    echo "║   AI-Powered Document Search & Knowledge Management System    ║"
+    echo "║               SIDF-MSD Knowledge Management Hub               ║"
     echo "╚═══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
 }
@@ -206,6 +206,46 @@ install_nodejs() {
     sudo apt-get install -y nodejs
 
     log "SUCCESS" "Node.js installed successfully"
+}
+
+# Function to check for application conflicts
+check_application_conflicts() {
+    log "INFO" "Checking for potential application conflicts..."
+
+    local conflicts_found=false
+
+    # Check for PostgreSQL
+    if netstat -tuln 2>/dev/null | grep -q ":5432 " || ss -tuln 2>/dev/null | grep -q ":5432 "; then
+        log "WARN" "PostgreSQL appears to be running on port 5432 (will use alternative port)"
+    fi
+
+    # Check for Redis
+    if netstat -tuln 2>/dev/null | grep -q ":6379 " || ss -tuln 2>/dev/null | grep -q ":6379 "; then
+        log "WARN" "Redis appears to be running on port 6379 (will use alternative port)"
+    fi
+
+    # Check for Ollama
+    if netstat -tuln 2>/dev/null | grep -q ":11434 " || ss -tuln 2>/dev/null | grep -q ":11434 "; then
+        log "WARN" "Ollama appears to be running on port 11434 (will use alternative port)"
+    fi
+
+    # Check critical frontend ports (3001-3003)
+    local frontend_available=false
+    for port in 3001 3002 3003; do
+        if ! (netstat -tuln 2>/dev/null | grep -q ":$port " || ss -tuln 2>/dev/null | grep -q ":$port "); then
+            frontend_available=true
+            break
+        fi
+    done
+
+    if [ "$frontend_available" = false ]; then
+        log "ERROR" "All required frontend ports (3001-3003) are in use"
+        log "ERROR" "Please stop services using these ports or choose a different server"
+        log "INFO" "You can check port usage with: sudo netstat -tuln | grep ':300[1-3] '"
+        exit 1
+    fi
+
+    log "SUCCESS" "Application conflict check completed"
 }
 
 # Function to clone repository
@@ -420,10 +460,11 @@ main() {
     fi
 
     # Start deployment process
-    log "INFO" "Starting Allemny Find V2 deployment..."
+    log "INFO" "Starting Allemny Find deployment..."
 
     # Pre-flight checks
     check_system_requirements
+    check_application_conflicts
 
     # Install dependencies
     install_system_dependencies
