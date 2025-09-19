@@ -337,30 +337,49 @@ setup_ollama() {
         log "SUCCESS" "Ollama is already installed"
     fi
 
-    # Start Ollama service (it runs as a daemon)
+    # Create systemd service for Ollama
+    log "INFO" "Creating Ollama systemd service..."
+    sudo tee /etc/systemd/system/ollama.service > /dev/null << EOF
+[Unit]
+Description=Ollama Service
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+User=$USER
+Group=$USER
+Restart=always
+RestartSec=3
+Environment="HOME=$HOME"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Start and enable Ollama service
     log "INFO" "Starting Ollama service..."
-    if ! pgrep -f "ollama serve" &>/dev/null; then
-        # Start ollama serve in background
-        nohup ollama serve >/dev/null 2>&1 &
-        sleep 15
+    sudo systemctl daemon-reload
+    sudo systemctl enable ollama
+    sudo systemctl start ollama
 
-        # Verify it started
-        local attempts=0
-        while [ $attempts -lt 6 ]; do
-            if pgrep -f "ollama serve" &>/dev/null; then
-                log "SUCCESS" "Ollama service is running"
-                break
-            fi
-            log "INFO" "Waiting for Ollama to start... ($((attempts + 1))/6)"
-            sleep 5
-            ((attempts++))
-        done
-
-        if [ $attempts -eq 6 ]; then
-            log "WARN" "Ollama service may not have started properly, continuing anyway..."
+    # Wait for service to be ready
+    local attempts=0
+    while [ $attempts -lt 12 ]; do
+        if sudo systemctl is-active --quiet ollama && curl -s http://localhost:11434/api/tags &>/dev/null; then
+            log "SUCCESS" "Ollama service is running and accessible"
+            break
         fi
-    else
-        log "SUCCESS" "Ollama service is already running"
+        log "INFO" "Waiting for Ollama service to be ready... ($((attempts + 1))/12)"
+        sleep 5
+        ((attempts++))
+    done
+
+    if [ $attempts -eq 12 ]; then
+        log "ERROR" "Ollama service failed to start properly"
+        log "INFO" "Checking service status..."
+        sudo systemctl status ollama --no-pager || true
+        exit 1
     fi
 
     # Pull required model
@@ -372,7 +391,7 @@ setup_ollama() {
         log "SUCCESS" "nomic-embed-text model is available"
     fi
 
-    # Test Ollama connectivity
+    # Final connectivity test
     log "INFO" "Testing Ollama connectivity..."
     if curl -s http://localhost:11434/api/tags &>/dev/null; then
         log "SUCCESS" "Ollama is working correctly"
