@@ -55,21 +55,21 @@ find_available_port() {
     local current_port=$base_port
     local attempts=0
 
-    echo -e "${BLUE}Finding available port for $service_name (starting from $base_port)...${NC}"
+    echo -e "${BLUE}Finding available port for $service_name (starting from $base_port)...${NC}" >&2
 
     while [ $attempts -lt $MAX_PORT_ATTEMPTS ]; do
         if check_port $current_port; then
-            echo -e "${GREEN}✓ Port $current_port is available for $service_name${NC}"
+            echo -e "${GREEN}✓ Port $current_port is available for $service_name${NC}" >&2
             echo $current_port
             return 0
         else
-            echo -e "${YELLOW}  Port $current_port is in use, trying next...${NC}"
+            echo -e "${YELLOW}  Port $current_port is in use, trying next...${NC}" >&2
             current_port=$((current_port + 1))
             attempts=$((attempts + 1))
         fi
     done
 
-    echo -e "${RED}✗ Could not find available port for $service_name after $MAX_PORT_ATTEMPTS attempts${NC}"
+    echo -e "${RED}✗ Could not find available port for $service_name after $MAX_PORT_ATTEMPTS attempts${NC}" >&2
     return 1
 }
 
