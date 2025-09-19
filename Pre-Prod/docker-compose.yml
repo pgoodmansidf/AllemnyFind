@@ -1,63 +1,4 @@
 services:
-  # PostgreSQL Database with pgvector
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: allemny_postgres
-    environment:
-      POSTGRES_DB: allemny_find_v2
-      POSTGRES_USER: allemny_find
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-AFbqSrE?h8bPjSCs9#}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U allemny_find -d allemny_find_v2"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - allemny-network
-    restart: unless-stopped
-
-  # Redis for caching and background jobs
-  redis:
-    image: redis:7-alpine
-    container_name: allemny_redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - allemny-network
-    restart: unless-stopped
-
-  # Ollama for local embeddings
-  ollama:
-    image: ollama/ollama:latest
-    container_name: allemny_ollama
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list || exit 1"]
-      interval: 30s
-      timeout: 30s
-      retries: 5
-      start_period: 60s
-    networks:
-      - allemny-network
-    restart: unless-stopped
 
   # Backend API Service
   backend:
@@ -66,9 +7,9 @@ services:
       dockerfile: Pre-Prod/Dockerfile.backend
     container_name: allemny_backend
     environment:
-      - DATABASE_URL=postgresql://allemny_find:${DB_PASSWORD:-AFbqSrE?h8bPjSCs9#}@postgres:5432/allemny_find_v2
-      - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - DATABASE_URL=postgresql://allemny_find:${DB_PASSWORD:-AFbqSrE?h8bPjSCs9#}@host.docker.internal:5432/allemny_find_v2
+      - REDIS_URL=redis://host.docker.internal:6379/0
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - GROQ_API_KEY=${GROQ_API_KEY:-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}
       - SECRET_KEY=${SECRET_KEY:-allemny-find-super-secret-key-change-in-production-2024}
       - ENVIRONMENT=production
@@ -77,13 +18,8 @@ services:
     volumes:
       - document_storage:/app/document_storage
       - backend_logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8002/health || curl -f http://localhost:8002/ || exit 1"]
       interval: 30s
@@ -136,12 +72,6 @@ services:
     profiles: ["production"]
 
 volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-  ollama_data:
-    driver: local
   document_storage:
     driver: local
   backend_logs:

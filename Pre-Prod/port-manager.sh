@@ -210,7 +210,7 @@ main() {
     echo -e "${BLUE}🚀 Allemny Find - Port Detection & Configuration${NC}"
     echo -e "${BLUE}================================================${NC}\n"
 
-    # Detect available ports for each service
+    # Detect available ports for application services only
     frontend_port=$(find_frontend_port)
     if [ $? -ne 0 ]; then
         echo -e "${RED}Failed to find available port for Frontend${NC}"
@@ -223,23 +223,14 @@ main() {
         exit 1
     fi
 
-    db_port=$(find_available_port $DEFAULT_DB_PORT "PostgreSQL Database")
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to find available port for PostgreSQL Database${NC}"
-        exit 1
-    fi
+    # Use existing service ports (no detection needed)
+    db_port=$DEFAULT_DB_PORT
+    redis_port=$DEFAULT_REDIS_PORT
+    ollama_port=$DEFAULT_OLLAMA_PORT
 
-    redis_port=$(find_available_port $DEFAULT_REDIS_PORT "Redis Cache")
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to find available port for Redis Cache${NC}"
-        exit 1
-    fi
-
-    ollama_port=$(find_available_port $DEFAULT_OLLAMA_PORT "Ollama AI")
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to find available port for Ollama AI${NC}"
-        exit 1
-    fi
+    echo -e "${GREEN}✓ Using existing PostgreSQL on port $db_port${NC}" >&2
+    echo -e "${GREEN}✓ Using existing Redis on port $redis_port${NC}" >&2
+    echo -e "${GREEN}✓ Using existing Ollama on port $ollama_port${NC}" >&2
 
     echo ""
 

@@ -208,25 +208,29 @@ install_nodejs() {
     log "SUCCESS" "Node.js installed successfully"
 }
 
-# Function to check for application conflicts
-check_application_conflicts() {
-    log "INFO" "Checking for potential application conflicts..."
-
-    local conflicts_found=false
+# Function to check for required services
+check_required_services() {
+    log "INFO" "Checking for required services..."
 
     # Check for PostgreSQL
     if netstat -tuln 2>/dev/null | grep -q ":5432 " || ss -tuln 2>/dev/null | grep -q ":5432 "; then
-        log "WARN" "PostgreSQL appears to be running on port 5432 (will use alternative port)"
+        log "SUCCESS" "PostgreSQL found on port 5432 - will use existing service"
+    else
+        log "WARN" "PostgreSQL not detected on port 5432 - will deploy containerized version"
     fi
 
     # Check for Redis
     if netstat -tuln 2>/dev/null | grep -q ":6379 " || ss -tuln 2>/dev/null | grep -q ":6379 "; then
-        log "WARN" "Redis appears to be running on port 6379 (will use alternative port)"
+        log "SUCCESS" "Redis found on port 6379 - will use existing service"
+    else
+        log "WARN" "Redis not detected on port 6379 - will deploy containerized version"
     fi
 
     # Check for Ollama
     if netstat -tuln 2>/dev/null | grep -q ":11434 " || ss -tuln 2>/dev/null | grep -q ":11434 "; then
-        log "WARN" "Ollama appears to be running on port 11434 (will use alternative port)"
+        log "SUCCESS" "Ollama found on port 11434 - will use existing service"
+    else
+        log "WARN" "Ollama not detected on port 11434 - will deploy containerized version"
     fi
 
     # Check critical frontend ports (3001-3003)
@@ -245,7 +249,7 @@ check_application_conflicts() {
         exit 1
     fi
 
-    log "SUCCESS" "Application conflict check completed"
+    log "SUCCESS" "Service check completed"
 }
 
 # Function to clone repository
@@ -464,7 +468,7 @@ main() {
 
     # Pre-flight checks
     check_system_requirements
-    check_application_conflicts
+    check_required_services
 
     # Install dependencies
     install_system_dependencies
