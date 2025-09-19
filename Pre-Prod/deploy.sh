@@ -2541,7 +2541,11 @@ start_services() {
             return 0
         }
 
-        return $(monitor_service_startup && echo 0 || echo 1)
+        if monitor_service_startup; then
+            return 0
+        else
+            return 1
+        fi
     }
 
     # Function to handle Docker system cleanup if needed
