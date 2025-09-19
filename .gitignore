@@ -47,17 +47,50 @@ temp/
 backend/app/services/lancedb/
 backend/app/services/tmp/
 
-# Test and temporary files
+# Test and temporary files (CRITICAL - prevent Claude-generated files)
 test_*.py
 *_test.py
 *_test_*.py
 test_results_*.json
 *_test_report*.md
+*_REPORT*.md
+*_TEST*.md
+*_COMPLETION*.md
+*_FIX*.md
+*_VALIDATION*.md
+CHAT_*.md
+CONTEXT_*.md
+EDGE_*.md
+COMPREHENSIVE_*.md
+MOBILE_*.md
+USER_*.md
+AGENT*.md
+DEBUG_*.md
+AUTHENTICATION_*.md
+ACCESSIBILITY_*.md
 edge_case_*.log
 *_testing.log
+debug_*.py
+check_*.py
+fix_*.py
+setup_*.py
+validate_*.py
+run_*.py
+display_*.py
+enhanced_*.py
+comprehensive_*.py
+optimized_*.py
+simple_*.py
+final_*.py
 *.tmp
 *.temp
 .tmp/
+chat_memory.db
+*.docx
+*.xlsx
+groq.txt
+db_credentials.txt
+claudespec.*
 
 # OS files
 .DS_Store
