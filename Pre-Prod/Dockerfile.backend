@@ -37,7 +37,7 @@ COPY backend/requirements.txt .
 # Install Python dependencies with caching and optimizations
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip==24.3.1 && \
-    pip install --prefer-binary -r requirements.txt
+    pip install --prefer-binary --timeout=600 --retries=5 -r requirements.txt
 
 # Copy backend application code
 COPY backend/ .

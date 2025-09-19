@@ -16,34 +16,24 @@ sqlalchemy>=2.0.40,<3.0.0
 alembic>=1.16.0,<2.0.0
 psycopg2-binary>=2.9.9,<3.0.0
 pgvector>=0.4.0,<1.0.0
-lancedb>=0.24.0,<1.0.0
-tantivy>=0.22.0,<1.0.0
 
 # Background and Asynchronous Processing
 celery>=5.5.0,<6.0.0
 redis>=6.0.0,<7.0.0
 flower>=2.0.0,<3.0.0
-gevent>=24.0.0,<26.0.0
-agno>=2.0.0,<3.0.0
 watchdog>=5.0.0,<7.0.0
 
-# AI and Document Processing
+# AI and Document Processing (lightweight selection)
 groq>=0.30.0,<1.0.0
 ollama>=0.5.0,<1.0.0
 tiktoken>=0.10.0,<1.0.0
-cohere>=5.15.0,<6.0.0
 langchain>=0.3.20,<0.4.0
-langchain-community>=0.3.20,<0.4.0
 langchain-groq>=0.3.0,<0.4.0
 langchain-ollama>=0.3.0,<0.4.0
-unstructured>=0.18.0,<0.20.0
-unstructured_inference>=1.0.0,<2.0.0
-transformers>=4.50.0,<5.0.0
-torch>=2.5.0,<3.0.0
 rank_bm25>=0.2.0,<1.0.0
 striprtf>=0.0.26,<1.0.0
 
-# File and Document Processing (textract removed due to pip compatibility issues)
+# File and Document Processing
 PyPDF2>=3.0.0,<4.0.0
 pdfplumber>=0.11.0,<1.0.0
 pdf2image>=1.17.0,<2.0.0
@@ -57,8 +47,8 @@ lxml>=5.2.0,<6.0.0
 chardet>=5.2.0,<6.0.0
 python-magic>=0.4.25,<1.0.0
 tabula-py>=2.9.0,<3.0.0
-pi_heif>=0.20.0,<1.0.0
 
 # Data and Search
 pandas>=2.2.0,<3.0.0
+numpy>=1.24.0,<2.0.0
 duckduckgo-search>=6.0.0,<8.0.0
