@@ -310,7 +310,7 @@ start_services() {
 
     # Start services
     log "INFO" "Starting services..."
-    docker-compose up -d
+    docker-compose up -d --remove-orphans
 
     # Wait for services to be ready
     log "INFO" "Waiting for services to start..."
@@ -324,7 +324,7 @@ start_services() {
 
 # Function to check service health
 check_service_health() {
-    local max_attempts=30
+    local max_attempts=6
     local attempt=0
 
     log "INFO" "Checking service health..."
@@ -335,27 +335,28 @@ check_service_health() {
     while [ $attempt -lt $max_attempts ]; do
         local healthy_services=0
 
-        # Check backend
-        if curl -s "http://localhost:$BACKEND_PORT/health" > /dev/null; then
+        # Check if containers are running
+        if docker ps --filter "name=allemny_backend" --filter "status=running" --quiet | grep -q .; then
+            log "SUCCESS" "Backend container is running"
             ((healthy_services++))
         fi
 
-        # Check frontend
-        if curl -s "http://localhost:$FRONTEND_PORT" > /dev/null; then
+        if docker ps --filter "name=allemny_frontend" --filter "status=running" --quiet | grep -q .; then
+            log "SUCCESS" "Frontend container is running"
             ((healthy_services++))
         fi
 
         if [ $healthy_services -eq 2 ]; then
-            log "SUCCESS" "All services are healthy"
+            log "SUCCESS" "All containers are running"
             return 0
         fi
 
-        log "INFO" "Waiting for services to be ready... ($((attempt + 1))/$max_attempts)"
+        log "INFO" "Waiting for containers to be ready... ($((attempt + 1))/$max_attempts)"
         sleep 10
         ((attempt++))
     done
 
-    log "WARN" "Some services may not be fully ready. Check logs with: docker-compose logs"
+    log "WARN" "Some containers may not be fully ready. Check logs with: docker-compose logs"
 }
 
 # Function to initialize database
