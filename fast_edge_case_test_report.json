@@ -1,0 +1,125 @@
+{
+  "test_execution_summary": {
+    "total_tests": 11,
+    "successful_tests": 10,
+    "failed_tests": 1,
+    "overall_success_rate": 0.9090909090909091,
+    "timestamp": "2025-09-17T20:03:08.819324"
+  },
+  "accuracy_analysis": {
+    "average_accuracy": 0.8866666666666667,
+    "accuracy_scores": [
+      0.8,
+      1.0,
+      1.0,
+      1.0,
+      0.6666666666666666,
+      0.6,
+      0.8,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "meets_accuracy_target": true
+  },
+  "performance_analysis": {
+    "average_execution_time": 0.0026557228781960225,
+    "max_execution_time": 0.01333475112915039,
+    "performance_within_limits": true,
+    "performance_target_met": true
+  },
+  "production_readiness": {
+    "is_production_ready": true,
+    "criteria_met": {
+      "success_rate_80_percent": true,
+      "accuracy_75_percent": true,
+      "performance_under_2s": true
+    }
+  },
+  "test_summary": [
+    {
+      "test_name": "Rapid Topic Switching",
+      "success": true,
+      "accuracy": 0.8,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Very Long Messages",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Empty Messages Between Context",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.01333475112915039
+    },
+    {
+      "test_name": "Same Question Repeated",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.009774923324584961
+    },
+    {
+      "test_name": "Contradictory Follow-ups",
+      "success": true,
+      "accuracy": 0.6666666666666666,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Meta-questions",
+      "success": false,
+      "accuracy": 0.6,
+      "execution_time": 0.0061032772064208984
+    },
+    {
+      "test_name": "Context Marker Validation",
+      "success": true,
+      "accuracy": 0.8,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "What About Validation",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Multi-Factor Scoring",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Decision Pathways",
+      "success": true,
+      "accuracy": 1.0,
+      "execution_time": 0.0
+    },
+    {
+      "test_name": "Performance Stress Test",
+      "success": true,
+      "accuracy": "N/A",
+      "execution_time": 0.0
+    }
+  ],
+  "detailed_results": [
+    {
+      "success": true,
+      "accuracy": 0.8,
+      "correct_predictions": 4,
+      "total_predictions": 5,
+      "detailed_results": [
+        {
+          "message_index": 0,
+          "message": "What information do you have on manufacturing proc...",
+          "detected_context": false,
+          "expected_context": false,
+          "correct": true,
+          "detection_time": 0.0
+        },
+        {
+          "message_index": 1,
+          "message": "Tell me about artificial intelligence strategies...",
+          "detected_context": 

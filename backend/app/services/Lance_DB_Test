@@ -1,0 +1,104 @@
+"""This cookbook shows how to implement Agentic RAG with Reasoning.
+1. Run: `pip install agno anthropic cohere tantivy sqlalchemy` to install the dependencies
+2. Export your ANTHROPIC_API_KEY and CO_API_KEY
+3. Run: `python cookbook/agent_concepts/agentic_search/agentic_rag_with_reasoning.py` to run the agent
+"""
+from pathlib import Path
+
+from agno.agent import Agent
+from agno.knowledge.combined import CombinedKnowledgeBase
+from agno.embedder.ollama import OllamaEmbedder
+from agno.knowledge.docx import DocxKnowledgeBase
+from agno.models.groq import Groq
+from agno.tools.reasoning import ReasoningTools
+from agno.vectordb.lancedb import LanceDb, SearchType
+
+
+
+# Define the database URL where the vector database will be stored
+db_url = "/tmp/lancedb"
+# Create Ollama embedder
+embedder = OllamaEmbedder(id="nomic-embed-text:latest", dimensions=768)
+
+# Create a knowledge base, loaded with documents from a URL
+#knowledge_base = UrlKnowledge(
+#    urls=["https://docs.agno.com/introduction/agents.md"],
+#    # Use LanceDB as the vector database, store embeddings in the `agno_docs` table
+#    vector_db=LanceDb(
+#        uri="tmp/lancedb",
+#        table_name="agno_docs",
+#        search_type=SearchType.hybrid,
+#        embedder=embedder,
+#    ),
+#)
+
+# Create app knowledge base
+app_kb = DocxKnowledgeBase(
+    path=Path("data/Application"),
+    vector_db=LanceDb(
+        uri="tmp/lancedb",
+        table_name="app_documents",
+        collection="Applications",
+        db_url=db_url,
+        search_type=SearchType.hybrid,
+        embedder=embedder,
+    ),
+)
+
+# Create industry knowledge base
+indus_kb = DocxKnowledgeBase(
+    path=Path("data/Industry"),
+    vector_db=LanceDb(
+        uri="tmp/lancedb",
+        table_name="indus_documents",
+        collection="Industy Study",
+        db_url=db_url,
+        search_type=SearchType.hybrid,
+        embedder=embedder,
+
+    ),
+)
+
+# Combine knowledge bases
+knowledge_base = CombinedKnowledgeBase(
+    sources=[
+        indus_kb,
+        app_kb,
+    ],
+    vector_db=LanceDb(
+        table_name="combined_documents",
+        db_url=db_url,
+        search_type=SearchType.hybrid,
+        embedder=embedder,
+    ),
+)
+
+# Load the knowledge base without recreating it if it already exists in Vector LanceDB
+knowledge_base.load(recreate=False)
+
+
+agent = Agent(
+    model=Groq(id="meta-llama/llama-4-maverick-17b-128e-instruct", api_key="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"),
+    # Agentic RAG is enabled by default when `knowledge` is provided to the Agent.
+    debug_mode=True,  # Enable debugging
+    knowledge=knowledge_base,
+    # search_knowledge=True gives the Agent the ability to search on demand
+    # search_knowledge is True by default
+    search_knowledge=True,
+    tools=[ReasoningTools(add_instructions=True)],
+    instructions=[
+        "Include sources in your response.",
+        "Always search your knowledge before answering the question.",
+    ],
+    markdown=True,
+)
+
+if __name__ == "__main__":
+    # Load the knowledge base, comment after first run
+    # knowledge_base.load(recreate=True)
+    agent.print_response(
+        "cars",
+        stream=True,
+        show_full_reasoning=True,
+        stream_intermediate_steps=True,
+    )

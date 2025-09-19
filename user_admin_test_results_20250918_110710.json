@@ -1,0 +1,21 @@
+{
+  "test_results": {
+    "health_check": "PASS",
+    "admin_login": "PASS",
+    "get_users": "PASS",
+    "user_count": 8,
+    "get_prescreened": "PASS",
+    "prescreened_count": 5,
+    "add_prescreened": "PASS",
+    "test_user_id": 39,
+    "delete_prescreened": "PASS",
+    "unauthorized_access": "FAIL",
+    "status_update": "FAIL"
+  },
+  "summary": {
+    "passed": 6,
+    "total": 8,
+    "success_rate": 75.0
+  },
+  "timestamp": "2025-09-18T11:07:10.703588"
+}

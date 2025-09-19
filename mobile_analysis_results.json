@@ -1,0 +1,23 @@
+{
+  "component_analysis": {
+    "responsive_classes": [],
+    "mobile_patterns": [
+      "sidebar"
+    ],
+    "accessibility_features": [
+      "onKeyDown"
+    ],
+    "layout_patterns": [
+      "Flexbox",
+      "Sidebar",
+      "Overflow handling"
+    ],
+    "potential_issues": []
+  },
+  "service_analysis": {
+    "mobile_features": [
+      "Streaming support"
+    ]
+  },
+  "score": 19
+}

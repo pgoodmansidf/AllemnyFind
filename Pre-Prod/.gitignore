@@ -1,0 +1,132 @@
+# Allemny Find V2 - Production .gitignore
+
+# Virtual environments (CRITICAL - exclude these)
+backend/venv/
+venv/
+env/
+.venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Node modules
+node_modules/
+.npm
+.node_repl_history
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# Logs
+*.log
+logs/
+deployment.log
+health-check.log
+alerts.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+chat_memory.db
+
+# Document storage (too large for git)
+document_storage/
+uploads/
+temp/
+
+# LanceDB data
+*.lance/
+backend/app/services/lancedb/
+backend/app/services/tmp/
+
+# Test and temporary files
+test_*.py
+*_test.py
+*_test_*.py
+test_results_*.json
+*_test_report*.md
+edge_case_*.log
+*_testing.log
+*.tmp
+*.temp
+.tmp/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build directories
+build/
+dist/
+.cache/
+.parcel-cache/
+
+# Backup files
+*.backup
+*.bak
+*~
+*.backup.*
+
+# Sensitive files
+credentials.txt
+secrets.txt
+api_keys.txt
+*.pem
+*.key
+*.crt
+*.p12
+
+# Screenshots and media
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.mov
+
+# Microsoft Office temporary files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Alembic compiled versions (keep source)
+alembic/versions/*.pyc
+
+# Docker overrides
+docker-compose.override.yml
+nginx.conf
+
+# Application specific
+.health_status
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Local development
+.env.local
+docker-compose.local.yml

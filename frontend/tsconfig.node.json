@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "node", // Corrected: Removed extra double quotes around "moduleResolution"
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    
+    // --- IMPORTANT: These paths are for resolving the '@' alias ---
+    "baseUrl": "./src", // Base directory for resolving non-relative module names
+    "paths": {
+      "@/*": ["*"] // Map any import starting with "@/"" to paths within baseUrl
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }] // If you have a separate tsconfig for node
+}

@@ -1,0 +1,267 @@
+{
+  "summary": {
+    "total_tests": 27,
+    "passed": 16,
+    "failed": 11,
+    "info": 0,
+    "skipped": 0,
+    "success_rate": 59.25925925925925
+  },
+  "test_results": [
+    {
+      "test_name": "Admin Authentication",
+      "status": "PASS",
+      "details": "Successfully authenticated as admin@sidf.gov.sa",
+      "timestamp": "2025-09-18T11:03:20.364688",
+      "data": null
+    },
+    {
+      "test_name": "Prescreen Setup",
+      "status": "PASS",
+      "details": "Added test.emailverif1@sidf.gov.sa to prescreen",
+      "timestamp": "2025-09-18T11:03:20.387692",
+      "data": null
+    },
+    {
+      "test_name": "Prescreen Setup",
+      "status": "PASS",
+      "details": "Added test.emailverif2@sidf.gov.sa to prescreen",
+      "timestamp": "2025-09-18T11:03:20.407040",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Valid Authorized - test.emailverif1@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Email test.emailverif1@sidf.gov.sa correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:03:22.453202",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif1",
+        "message": "Email verified. Please create your password."
+      }
+    },
+    {
+      "test_name": "Email Check - Valid Authorized - test.emailverif2@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Email test.emailverif2@sidf.gov.sa correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:03:24.502302",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif2",
+        "message": "Email verified. Please create your password."
+      }
+    },
+    {
+      "test_name": "Email Check - Invalid Format - invalid-email",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: An email address must have an @-sign.\",\"input\":\"invalid-email\",\"ctx\":{\"reason\":\"An email address must have an @-sign.\"}}]}",
+      "timestamp": "2025-09-18T11:03:26.559728",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - test@",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: There must be something after the @-sign.\",\"input\":\"test@\",\"ctx\":{\"reason\":\"There must be something after the @-sign.\"}}]}",
+      "timestamp": "2025-09-18T11:03:28.607263",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - @sidf.gov.sa",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: There must be something before the @-sign.\",\"input\":\"@sidf.gov.sa\",\"ctx\":{\"reason\":\"There must be something before the @-sign.\"}}]}",
+      "timestamp": "2025-09-18T11:03:30.646779",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - test.user@",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: There must be something after the @-sign.\",\"input\":\"test.user@\",\"ctx\":{\"reason\":\"There must be something after the @-sign.\"}}]}",
+      "timestamp": "2025-09-18T11:03:32.680066",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - test..user@sidf.gov.sa",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: An email address cannot have two periods in a row.\",\"input\":\"test..user@sidf.gov.sa\",\"ctx\":{\"reason\":\"An email address cannot have two periods in a row.\"}}]}",
+      "timestamp": "2025-09-18T11:03:34.712827",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - .test@sidf.gov.sa",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: An email address cannot start with a period.\",\"input\":\".test@sidf.gov.sa\",\"ctx\":{\"reason\":\"An email address cannot start with a period.\"}}]}",
+      "timestamp": "2025-09-18T11:03:36.751393",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Invalid Format - test@sidf..gov.sa",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: An email address cannot have two periods in a row.\",\"input\":\"test@sidf..gov.sa\",\"ctx\":{\"reason\":\"An email address cannot have two periods in a row.\"}}]}",
+      "timestamp": "2025-09-18T11:03:38.787820",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Unauthorized Domain - test@gmail.com",
+      "status": "PASS",
+      "details": "Email test@gmail.com correctly returned authorized=False",
+      "timestamp": "2025-09-18T11:03:40.834952",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Unauthorized Domain - user@yahoo.com",
+      "status": "PASS",
+      "details": "Email user@yahoo.com correctly returned authorized=False",
+      "timestamp": "2025-09-18T11:03:42.870526",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Unauthorized Domain - admin@external.com",
+      "status": "PASS",
+      "details": "Email admin@external.com correctly returned authorized=False",
+      "timestamp": "2025-09-18T11:03:44.913837",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Edge Case - ",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: An email address must have an @-sign.\",\"input\":\"\",\"ctx\":{\"reason\":\"An email address must have an @-sign.\"}}]}",
+      "timestamp": "2025-09-18T11:03:46.965556",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Edge Case - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...",
+      "status": "FAIL",
+      "details": "Unexpected status code 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"email\"],\"msg\":\"value is not a valid email address: The email address is too long (13 characters too many).\",\"input\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@sidf.gov.sa\",\"ctx\":{\"reason\":\"The email address is too long (13 characters too many).\"}}]}",
+      "timestamp": "2025-09-18T11:03:49.013641",
+      "data": null
+    },
+    {
+      "test_name": "Email Check - Edge Case - test@sidf.gov.sa ",
+      "status": "PASS",
+      "details": "Email test@sidf.gov.sa  correctly returned authorized=False",
+      "timestamp": "2025-09-18T11:03:51.052307",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Edge Case -  test@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Email  test@sidf.gov.sa correctly returned authorized=False",
+      "timestamp": "2025-09-18T11:03:53.102528",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Registration Flow - test.emailverif1@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Registration successful for test.emailverif1@sidf.gov.sa",
+      "timestamp": "2025-09-18T11:03:57.540923",
+      "data": {
+        "id": 19,
+        "username": "test.emailverif1@sidf.gov.sa",
+        "email": "test.emailverif1@sidf.gov.sa",
+        "full_name": "Test User Test Emailverif1",
+        "role": "standard",
+        "department": null,
+        "phone": null,
+        "is_active": true,
+        "created_at": "2025-09-18T11:03:57.176212+03:00",
+        "last_login": null
+      }
+    },
+    {
+      "test_name": "Duplicate Email Detection",
+      "status": "PASS",
+      "details": "Correctly detected test.emailverif1@sidf.gov.sa as already registered",
+      "timestamp": "2025-09-18T11:03:59.593325",
+      "data": {
+        "authorized": true,
+        "already_registered": true,
+        "message": "This email is already registered. Please login."
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization - test.emailverif2@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Email test.emailverif2@sidf.gov.sa correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:04:01.664231",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif2",
+        "message": "Email verified. Please create your password."
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization - TEST.EMAILVERIF2@SIDF.GOV.SA",
+      "status": "FAIL",
+      "details": "Expected authorized=True, got False",
+      "timestamp": "2025-09-18T11:04:03.702103",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization - Test.Emailverif2@Sidf.Gov.Sa",
+      "status": "FAIL",
+      "details": "Expected authorized=True, got False",
+      "timestamp": "2025-09-18T11:04:05.746088",
+      "data": {
+        "authorized": false,
+        "message": "Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization -  test.emailverif2@sidf.gov.sa ",
+      "status": "PASS",
+      "details": "Email  test.emailverif2@sidf.gov.sa  correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:04:07.794816",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif2",
+        "message": "Email verified. Please create your password."
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization - test.emailverif2@sidf.gov.sa ",
+      "status": "PASS",
+      "details": "Email test.emailverif2@sidf.gov.sa  correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:04:09.856323",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif2",
+        "message": "Email verified. Please create your password."
+      }
+    },
+    {
+      "test_name": "Email Check - Normalization -  test.emailverif2@sidf.gov.sa",
+      "status": "PASS",
+      "details": "Email  test.emailverif2@sidf.gov.sa correctly returned authorized=True",
+      "timestamp": "2025-09-18T11:04:11.910161",
+      "data": {
+        "authorized": true,
+        "already_registered": false,
+        "full_name": "Test User Test Emailverif2",
+        "message": "Email verified. Please create your password."
+      }
+    }
+  ]
+}

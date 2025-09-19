@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "incremental": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "baseUrl": "./src", // This sets the base directory for resolving non-relative module names
+    "paths": {
+      "@/hooks/*": ["hooks/*"], // Explicitly map @/hooks to src/hooks
+      "@/components/*": ["components/*"], // Explicitly map @/components to src/components
+      "@/store/*": ["store/*"], // Explicitly map @/store to src/store
+      "@/*": ["*"] // Keep the general mapping for other top-level imports within src
+    }
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "overall_accuracy": 0.7916666666666666,
+  "total_correct": 19,
+  "total_messages": 24,
+  "scenario_results": [
+    {
+      "name": "Pronoun Resolution",
+      "accuracy": 1.0,
+      "correct": 6,
+      "total": 6
+    },
+    {
+      "name": "Context Building",
+      "accuracy": 0.6666666666666666,
+      "correct": 4,
+      "total": 6
+    },
+    {
+      "name": "Topic Drift and Return",
+      "accuracy": 0.8333333333333334,
+      "correct": 5,
+      "total": 6
+    },
+    {
+      "name": "Explicit Context Switches",
+      "accuracy": 0.6666666666666666,
+      "correct": 4,
+      "total": 6
+    }
+  ]
+}

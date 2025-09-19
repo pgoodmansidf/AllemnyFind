@@ -1,0 +1,80 @@
+[
+  {
+    "test": "Server Health",
+    "status": "PASS",
+    "details": "Server is running",
+    "timestamp": "2025-09-18T08:13:56.167910"
+  },
+  {
+    "test": "Admin Authentication",
+    "status": "PASS",
+    "details": "Successfully authenticated",
+    "timestamp": "2025-09-18T08:13:58.584757"
+  },
+  {
+    "test": "Get Prescreened Users",
+    "status": "FAIL",
+    "details": "Status: 500",
+    "timestamp": "2025-09-18T08:13:58.597126"
+  },
+  {
+    "test": "Add Prescreened User",
+    "status": "FAIL",
+    "details": "Error: ('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))",
+    "timestamp": "2025-09-18T08:13:58.597126"
+  },
+  {
+    "test": "Add Prescreened User",
+    "status": "PASS",
+    "details": "Added test.prescreen2@sidf.gov.sa",
+    "timestamp": "2025-09-18T08:14:00.680459"
+  },
+  {
+    "test": "Add Prescreened User",
+    "status": "PASS",
+    "details": "Added external.user@gmail.com",
+    "timestamp": "2025-09-18T08:14:00.693268"
+  },
+  {
+    "test": "Email Check",
+    "status": "INFO",
+    "details": "test.prescreen1@sidf.gov.sa not authorized (expected)",
+    "timestamp": "2025-09-18T08:14:02.739372"
+  },
+  {
+    "test": "Email Check",
+    "status": "PASS",
+    "details": "test.prescreen2@sidf.gov.sa is authorized",
+    "timestamp": "2025-09-18T08:14:04.777978"
+  },
+  {
+    "test": "Email Check",
+    "status": "PASS",
+    "details": "external.user@gmail.com is authorized",
+    "timestamp": "2025-09-18T08:14:06.821757"
+  },
+  {
+    "test": "User Registration",
+    "status": "INFO",
+    "details": "test.prescreen1@sidf.gov.sa not authorized for registration",
+    "timestamp": "2025-09-18T08:14:08.875657"
+  },
+  {
+    "test": "Validation Test",
+    "status": "PASS",
+    "details": "Correctly rejected: ",
+    "timestamp": "2025-09-18T08:14:10.936238"
+  },
+  {
+    "test": "Validation Test",
+    "status": "PASS",
+    "details": "Correctly rejected: invalid-email",
+    "timestamp": "2025-09-18T08:14:10.947060"
+  },
+  {
+    "test": "Validation Test",
+    "status": "FAIL",
+    "details": "Should have rejected: test@example.com",
+    "timestamp": "2025-09-18T08:14:10.947060"
+  }
+]

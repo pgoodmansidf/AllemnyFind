@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-09-17T23:16:27.314539",
+  "backend_url": "http://localhost:8000",
+  "frontend_url": "http://localhost:3009",
+  "tests": {
+    "Backend Server Health": {
+      "success": true,
+      "details": "Backend responding on port 8000: {'status': 'healthy', 'database': 'connected', 'version': '2.0.0'}",
+      "error": null,
+      "timestamp": "2025-09-17T23:16:29.375454"
+    },
+    "Frontend Server Health": {
+      "success": true,
+      "details": "Frontend responding on port 3009",
+      "error": null,
+      "timestamp": "2025-09-17T23:16:29.435802"
+    },
+    "Admin Authentication": {
+      "success": false,
+      "details": "Login failed with status 404: {\"detail\":\"Not Found\"}",
+      "error": null,
+      "timestamp": "2025-09-17T23:16:31.481073"
+    },
+    "Frontend Chat Page": {
+      "success": true,
+      "details": "Chat page loads successfully",
+      "error": null,
+      "timestamp": "2025-09-17T23:16:31.897705"
+    }
+  }
+}

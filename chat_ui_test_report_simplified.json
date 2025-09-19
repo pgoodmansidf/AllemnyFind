@@ -1,0 +1,29 @@
+{
+  "test_execution": {
+    "timestamp": "2025-09-17T20:11:57.028754",
+    "total_tests": 3,
+    "passed_tests": 1,
+    "failed_tests": 2,
+    "success_rate": 0.3333333333333333
+  },
+  "test_results": {
+    "conversation_creation": {
+      "status": "FAIL",
+      "error": "Failed to create conversation: 500",
+      "time": 2.1097943782806396
+    },
+    "admin_access_controls": {
+      "status": "PASS",
+      "time": 5.56874680519104,
+      "admin_access_granted": true,
+      "health_endpoint_working": true,
+      "health_status": "healthy"
+    },
+    "donut_scenario": {
+      "status": "FAIL",
+      "error": "Failed to create donut conversation: 500",
+      "time": 2.0574095249176025
+    }
+  },
+  "conversations_tested": 0
+}
