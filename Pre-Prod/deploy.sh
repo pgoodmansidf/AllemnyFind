@@ -337,13 +337,30 @@ setup_ollama() {
         log "SUCCESS" "Ollama is already installed"
     fi
 
-    # Check if Ollama service is running
+    # Start Ollama service (it runs as a daemon)
+    log "INFO" "Starting Ollama service..."
     if ! pgrep -f "ollama serve" &>/dev/null; then
-        log "INFO" "Starting Ollama service..."
-        nohup ollama serve &>/dev/null &
-        sleep 10
+        # Start ollama serve in background
+        nohup ollama serve >/dev/null 2>&1 &
+        sleep 15
+
+        # Verify it started
+        local attempts=0
+        while [ $attempts -lt 6 ]; do
+            if pgrep -f "ollama serve" &>/dev/null; then
+                log "SUCCESS" "Ollama service is running"
+                break
+            fi
+            log "INFO" "Waiting for Ollama to start... ($((attempts + 1))/6)"
+            sleep 5
+            ((attempts++))
+        done
+
+        if [ $attempts -eq 6 ]; then
+            log "WARN" "Ollama service may not have started properly, continuing anyway..."
+        fi
     else
-        log "SUCCESS" "Ollama service is running"
+        log "SUCCESS" "Ollama service is already running"
     fi
 
     # Pull required model
