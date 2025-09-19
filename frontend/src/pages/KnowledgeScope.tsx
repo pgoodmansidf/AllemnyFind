@@ -11,7 +11,7 @@ import {
   ClockIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
-import { PageLayout } from '@/components/layout/PageLayout';
+import { PageLayout } from '@/components/Layout/PageLayout';
 import DocumentCoverage from '../components/knowledgescope/DocumentCoverage';
 import ContentIntelligence from '../components/knowledgescope/ContentIntelligence';
 import MetricsCards from '../components/knowledgescope/MetricsCards';

@@ -1,6 +1,7 @@
 // searchApi.ts
 
-import axios, { AxiosResponse } from 'axios';
+import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import toast from 'react-hot-toast';
 
 export interface Comment {

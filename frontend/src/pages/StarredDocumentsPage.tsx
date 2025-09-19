@@ -12,7 +12,7 @@ import {
   X,
   Eye
 } from 'lucide-react';
-import { PageLayout } from '@/components/layout/PageLayout';
+import { PageLayout } from '@/components/Layout/PageLayout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { starsApi, StarredDocument } from '@/services/starsApi';

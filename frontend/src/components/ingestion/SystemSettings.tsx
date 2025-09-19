@@ -10,7 +10,7 @@ import {
   Cpu,
   HardDrive,
   Terminal,
-  Windows,
+  Square,
   FileText
 } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -129,7 +129,7 @@ export const SystemSettings: React.FC = () => {
     if (!systemInfo) return <Monitor className="h-5 w-5" />;
 
     if (systemInfo.is_windows) {
-      return <Windows className="h-5 w-5" />;
+      return <Square className="h-5 w-5" />;
     } else if (systemInfo.is_wsl) {
       return <Terminal className="h-5 w-5" />;
     } else {
@@ -286,7 +286,7 @@ export const SystemSettings: React.FC = () => {
                   onClick={() => processingMode.mode !== 'native' && setProcessingModePreference('native')}
                 >
                   <div className="flex items-center space-x-3 mb-3">
-                    <Windows className="h-6 w-6 text-blue-400" />
+                    <Square className="h-6 w-6 text-blue-400" />
                     <div>
                       <h4 className="text-white font-medium">Native Windows</h4>
                       {processingMode.mode === 'native' && (

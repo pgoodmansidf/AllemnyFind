@@ -5,7 +5,7 @@ import {
   Upload, MessageSquare, Heart, Calendar, Filter, Crown,
   ChevronUp, ChevronDown, Activity, Target
 } from 'lucide-react';
-import { PageLayout } from '@/components/layout/PageLayout';
+import { PageLayout } from '@/components/Layout/PageLayout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/authStore';

@@ -7,7 +7,7 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { PageLayout } from '@/components/layout/PageLayout';
+import { PageLayout } from '@/components/Layout/PageLayout';
 import { MachinerySearch } from '@/components/techvault/MachinerySearch';
 import { MachineryResults } from '@/components/techvault/MachineryResults';
 import { MachineryAdmin } from '@/components/techvault/MachineryAdmin';

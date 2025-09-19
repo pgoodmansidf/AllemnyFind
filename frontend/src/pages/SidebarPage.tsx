@@ -1,6 +1,6 @@
 // src/pages/SidebarPage.tsx
 import React from 'react';
-import Sidebar from '@/components/Sidebar/Sidebar';
+import Sidebar from '@/components/SideBar/Sidebar';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSearchStore } from '@/store/searchStore';

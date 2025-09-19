@@ -7,7 +7,7 @@ import {
   AlertCircle, CheckCircle, XCircle, Settings, Users, BarChart3,
   ChevronDown, ChevronUp, Calendar, User, Tag, ArrowUpDown
 } from 'lucide-react';
-import { PageLayout } from '@/components/layout/PageLayout';
+import { PageLayout } from '@/components/Layout/PageLayout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/authStore';

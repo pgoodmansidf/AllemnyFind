@@ -1,6 +1,7 @@
 // src/services/apiClient.ts - COMPLETE API CLIENT
 
-import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+import axios from 'axios';
+import type { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 
 // Get the API URL from environment variables or use default

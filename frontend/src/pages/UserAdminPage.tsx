@@ -22,7 +22,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { PageLayout, NavigationItem } from '@/components/layout/PageLayout';
+import { PageLayout, NavigationItem } from '@/components/Layout/PageLayout';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
