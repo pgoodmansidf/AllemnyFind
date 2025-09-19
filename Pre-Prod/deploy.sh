@@ -2439,80 +2439,220 @@ start_services() {
         fi
     }
 
-    # Function to start services with comprehensive monitoring
-    start_services_robust() {
-        log "INFO" "Starting services with comprehensive monitoring..."
+    # Function to validate configuration before starting services
+    validate_deployment_config() {
+        log "INFO" "Validating deployment configuration..."
 
-        # Clean up any existing containers that might be in bad state
-        log "INFO" "Cleaning up any existing containers..."
-        docker-compose down --remove-orphans --volumes 2>/dev/null || true
-        sleep 5
-
-        # Start services with retry logic
-        if retry_with_backoff 3 10 "docker-compose up -d --remove-orphans"; then
-            log "SUCCESS" "Services started successfully"
-        else
-            log "WARN" "Standard startup failed, trying individual service startup..."
-
-            # Try starting services individually
-            local services=("backend" "frontend")
-            local started_services=()
-            local failed_services=()
-
-            for service in "${services[@]}"; do
-                if retry_with_backoff 2 10 "docker-compose up -d $service"; then
-                    log "SUCCESS" "Service '$service' started successfully"
-                    started_services+=("$service")
-                    sleep 10  # Give each service time to start
-                else
-                    log "ERROR" "Service '$service' startup failed"
-                    failed_services+=("$service")
-                fi
-            done
-
-            if [ ${#failed_services[@]} -gt 0 ]; then
-                log "ERROR" "Failed to start services: ${failed_services[*]}"
-                return 1
-            fi
+        # Check if docker-compose.yml exists and is valid
+        if [ ! -f "docker-compose.yml" ]; then
+            log "ERROR" "docker-compose.yml not found"
+            return 1
         fi
 
-        # Enhanced service monitoring with exponential backoff
+        # Validate docker-compose syntax
+        if ! docker-compose config >/dev/null 2>&1; then
+            log "ERROR" "Invalid docker-compose.yml configuration"
+            docker-compose config 2>&1 | while read line; do
+                log "ERROR" "  $line"
+            done
+            return 1
+        fi
+
+        # Check if .env file exists
+        if [ ! -f ".env" ]; then
+            log "ERROR" ".env file not found"
+            return 1
+        fi
+
+        # Validate critical environment variables
+        source .env
+        local required_vars=("FRONTEND_PORT" "BACKEND_PORT")
+        for var in "${required_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+                log "ERROR" "Required environment variable $var is not set"
+                return 1
+            fi
+        done
+
+        # Check for port conflicts with actual running processes
+        log "INFO" "Checking for real-time port conflicts..."
+        local ports=($FRONTEND_PORT $BACKEND_PORT)
+        for port in "${ports[@]}"; do
+            if netstat -tuln 2>/dev/null | grep -q ":$port " || ss -tuln 2>/dev/null | grep -q ":$port "; then
+                # Get the process using the port
+                local process=$(netstat -tulpn 2>/dev/null | grep ":$port " | awk '{print $7}' | head -1)
+                log "ERROR" "Port $port is in use by process: $process"
+                return 1
+            fi
+        done
+
+        log "SUCCESS" "Configuration validation passed"
+        return 0
+    }
+
+    # Function to get immediate container diagnostics
+    get_container_diagnostics() {
+        log "INFO" "Getting comprehensive container diagnostics..."
+
+        # Check what containers exist
+        log "INFO" "All containers (including stopped):"
+        docker ps -a --filter "name=allemny" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | while read line; do
+            log "INFO" "  $line"
+        done
+
+        # Check docker-compose specific status
+        log "INFO" "Docker Compose service status:"
+        docker-compose ps 2>/dev/null | while read line; do
+            log "INFO" "  $line"
+        done
+
+        # Get logs from any failed containers
+        local containers=("allemny_backend" "allemny_frontend")
+        for container in "${containers[@]}"; do
+            if docker ps -a --format "{{.Names}}" | grep -q "$container"; then
+                local status=$(docker inspect "$container" --format='{{.State.Status}}' 2>/dev/null)
+                log "INFO" "Container '$container' status: $status"
+
+                if [ "$status" != "running" ]; then
+                    log "ERROR" "Container '$container' is not running. Last 20 log lines:"
+                    docker logs "$container" --tail=20 2>&1 | while read line; do
+                        log "ERROR" "  $line"
+                    done
+
+                    # Get exit code if container exited
+                    local exit_code=$(docker inspect "$container" --format='{{.State.ExitCode}}' 2>/dev/null)
+                    if [ "$exit_code" != "0" ] && [ "$exit_code" != "<no value>" ]; then
+                        log "ERROR" "Container '$container' exited with code: $exit_code"
+                    fi
+                fi
+            fi
+        done
+    }
+
+    # Function to start services with bulletproof monitoring
+    start_services_robust() {
+        log "INFO" "Starting services with bulletproof error handling..."
+
+        # Step 1: Validate configuration first
+        if ! validate_deployment_config; then
+            log "ERROR" "Configuration validation failed, cannot proceed"
+            return 1
+        fi
+
+        # Step 2: Clean up any existing containers
+        log "INFO" "Cleaning up any existing containers..."
+        docker-compose down --remove-orphans --volumes 2>/dev/null || true
+        sleep 3
+
+        # Step 3: Check system resources before starting
+        local available_memory=$(free -m | awk 'NR==2{printf "%d", $7/1024 }')
+        log "INFO" "Available memory: ${available_memory}GB"
+        if [ "$available_memory" -lt 1 ]; then
+            log "WARN" "Low memory available: ${available_memory}GB (recommended: 2GB+)"
+        fi
+
+        # Step 4: Start services with immediate verification
+        log "INFO" "Starting Docker Compose services..."
+        if docker-compose up -d --remove-orphans; then
+            log "INFO" "Docker Compose command completed, verifying container status..."
+            sleep 5  # Give containers a moment to start
+
+            # Immediate container health check
+            local running_containers=$(docker ps --filter "name=allemny" --format "{{.Names}}" | wc -l)
+            local total_containers=$(docker ps -a --filter "name=allemny" --format "{{.Names}}" | wc -l)
+
+            log "INFO" "Container status: $running_containers/$total_containers running"
+
+            if [ "$running_containers" -eq 0 ]; then
+                log "ERROR" "No containers are running after startup!"
+                get_container_diagnostics
+                return 1
+            elif [ "$running_containers" -lt "$total_containers" ]; then
+                log "WARN" "Some containers failed to start ($running_containers/$total_containers running)"
+                get_container_diagnostics
+            else
+                log "SUCCESS" "All containers started successfully"
+            fi
+        else
+            log "ERROR" "Docker Compose startup failed"
+            get_container_diagnostics
+            return 1
+        fi
+
+        # Enhanced service monitoring with bulletproof verification
         monitor_service_startup() {
             local max_wait_time=$SERVICE_START_TIMEOUT
-            local check_interval=5
+            local check_interval=10
             local waited=0
             local all_services_ready=false
 
-            log "INFO" "Monitoring service startup (timeout: ${max_wait_time}s)..."
+            log "INFO" "Monitoring service health (timeout: ${max_wait_time}s)..."
 
             while [ $waited -lt $max_wait_time ]; do
-                local services_status=$(docker-compose ps --services --filter "status=running" 2>/dev/null | wc -l)
-                local total_services=$(docker-compose ps --services 2>/dev/null | wc -l)
+                # Check running containers using docker ps (not docker-compose ps --services)
+                local running_containers=$(docker ps --filter "name=allemny" --filter "status=running" --format "{{.Names}}" | wc -l)
+                local all_containers=$(docker ps -a --filter "name=allemny" --format "{{.Names}}" | wc -l)
 
-                if [ "$services_status" -eq "$total_services" ] && [ "$total_services" -gt 0 ]; then
-                    # All services are running, but let's verify they're actually healthy
-                    local healthy_count=0
+                log "DEBUG" "Container status check: $running_containers/$all_containers running"
 
-                    # Check if containers are actually responding
-                    for service in backend frontend; do
-                        local container_name="${service}"
-                        if docker ps --filter "name=${container_name}" --filter "status=running" --format "{{.Names}}" | grep -q "${container_name}"; then
-                            ((healthy_count++))
-                        fi
-                    done
+                # We expect 2 containers: backend and frontend
+                if [ "$running_containers" -eq 2 ] && [ "$all_containers" -eq 2 ]; then
+                    # All containers running, now check if they're actually healthy
+                    local backend_healthy=false
+                    local frontend_healthy=false
 
-                    if [ $healthy_count -eq 2 ]; then
+                    # Check backend health with multiple robust methods
+                    if docker exec allemny_backend sh -c "command -v curl >/dev/null && curl -f http://localhost:8002/health" 2>/dev/null; then
+                        backend_healthy=true
+                        log "DEBUG" "Backend health check: Health endpoint responding"
+                    elif docker exec allemny_backend sh -c "command -v netstat >/dev/null && netstat -tuln | grep -q ':8002 '" 2>/dev/null; then
+                        backend_healthy=true
+                        log "DEBUG" "Backend health check: Port 8002 listening"
+                    elif docker exec allemny_backend sh -c "ps aux | grep -v grep | grep -q python" 2>/dev/null; then
+                        backend_healthy=true
+                        log "DEBUG" "Backend health check: Python process running"
+                    else
+                        log "DEBUG" "Backend health check: WAITING (no response on port 8002)"
+                    fi
+
+                    # Check frontend health with dynamic port detection
+                    local frontend_port=$(docker exec allemny_frontend printenv FRONTEND_PORT 2>/dev/null || echo "3001")
+
+                    if docker exec allemny_frontend sh -c "ps aux | grep -v grep | grep -q nginx" 2>/dev/null; then
+                        frontend_healthy=true
+                        log "DEBUG" "Frontend health check: Nginx process running"
+                    elif docker exec allemny_frontend sh -c "command -v netstat >/dev/null && netstat -tuln | grep -q ':$frontend_port '" 2>/dev/null; then
+                        frontend_healthy=true
+                        log "DEBUG" "Frontend health check: Port $frontend_port listening"
+                    elif docker exec allemny_frontend sh -c "command -v curl >/dev/null && curl -f http://localhost:$frontend_port" 2>/dev/null; then
+                        frontend_healthy=true
+                        log "DEBUG" "Frontend health check: HTTP response on port $frontend_port"
+                    else
+                        log "DEBUG" "Frontend health check: WAITING (no response on port $frontend_port)"
+                    fi
+
+                    if [ "$backend_healthy" = true ] && [ "$frontend_healthy" = true ]; then
                         log "SUCCESS" "All services are running and healthy"
                         all_services_ready=true
                         break
                     fi
+                elif [ "$running_containers" -eq 0 ]; then
+                    log "ERROR" "All containers have stopped running!"
+                    get_container_diagnostics
+                    return 1
+                elif [ "$all_containers" -gt "$running_containers" ]; then
+                    log "WARN" "Some containers have stopped: $running_containers/$all_containers running"
+                    get_container_diagnostics
                 fi
 
-                # Progress indication
+                # Progress indication with actual container status
                 local progress=$((waited * 100 / max_wait_time))
                 if [ $((waited % 30)) -eq 0 ]; then
                     log "INFO" "Service startup progress: ${progress}% (${waited}s/${max_wait_time}s)"
-                    docker-compose ps 2>/dev/null | while read line; do
+                    log "DEBUG" "Running containers: $running_containers/$all_containers"
+
+                    # Show actual container status
+                    docker ps --filter "name=allemny" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | while read line; do
                         log "DEBUG" "  $line"
                     done
                 fi
@@ -2522,19 +2662,8 @@ start_services() {
             done
 
             if [ "$all_services_ready" != "true" ]; then
-                log "ERROR" "Services failed to become ready within ${max_wait_time} seconds"
-
-                # Diagnostic information
-                log "INFO" "Service diagnostic information:"
-                docker-compose ps 2>/dev/null | while read line; do
-                    log "INFO" "  $line"
-                done
-
-                log "INFO" "Container status:"
-                docker ps -a --filter "name=allemny" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | while read line; do
-                    log "INFO" "  $line"
-                done
-
+                log "ERROR" "Services failed to become healthy within ${max_wait_time} seconds"
+                get_container_diagnostics
                 return 1
             fi
 
@@ -2590,7 +2719,7 @@ start_services() {
             log "WARN" "Container build failed on attempt $((deployment_attempts + 1))"
         fi
 
-        ((deployment_attempts++))
+        deployment_attempts=$((deployment_attempts + 1))
 
         if [ $deployment_attempts -lt $max_deployment_attempts ]; then
             log "INFO" "Cleaning up before retry..."
