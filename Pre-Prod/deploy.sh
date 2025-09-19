@@ -105,11 +105,8 @@ check_system_requirements() {
     fi
 }
 
-# Function to install system dependencies
-install_system_dependencies() {
-    log "INFO" "Installing system dependencies..."
-
-    # Detect package manager
+# Function to detect package manager
+detect_package_manager() {
     if command -v apt &> /dev/null; then
         PACKAGE_MANAGER="apt"
         UPDATE_CMD="apt update"
@@ -128,6 +125,11 @@ install_system_dependencies() {
     fi
 
     log "INFO" "Detected package manager: $PACKAGE_MANAGER"
+}
+
+# Function to install system dependencies
+install_system_dependencies() {
+    log "INFO" "Installing system dependencies..."
 
     # Update package lists
     log "INFO" "Updating package lists..."
@@ -208,32 +210,165 @@ install_nodejs() {
     log "SUCCESS" "Node.js installed successfully"
 }
 
-# Function to check for required services
-check_required_services() {
-    log "INFO" "Checking for required services..."
+# Function to detect and install PostgreSQL
+setup_postgresql() {
+    log "INFO" "Setting up PostgreSQL..."
 
-    # Check for PostgreSQL
-    if netstat -tuln 2>/dev/null | grep -q ":5432 " || ss -tuln 2>/dev/null | grep -q ":5432 "; then
-        log "SUCCESS" "PostgreSQL found on port 5432 - will use existing service"
+    # Check if PostgreSQL is installed
+    if ! command -v psql &> /dev/null; then
+        log "INFO" "Installing PostgreSQL..."
+        case $PACKAGE_MANAGER in
+            "apt")
+                sudo apt-get update
+                sudo apt-get install -y postgresql postgresql-contrib postgresql-server-dev-all
+                ;;
+            "yum"|"dnf")
+                sudo $INSTALL_CMD postgresql postgresql-server postgresql-contrib postgresql-devel
+                sudo postgresql-setup initdb || true
+                ;;
+        esac
     else
-        log "WARN" "PostgreSQL not detected on port 5432 - will deploy containerized version"
+        log "SUCCESS" "PostgreSQL is already installed"
     fi
 
-    # Check for Redis
-    if netstat -tuln 2>/dev/null | grep -q ":6379 " || ss -tuln 2>/dev/null | grep -q ":6379 "; then
-        log "SUCCESS" "Redis found on port 6379 - will use existing service"
+    # Check if PostgreSQL service is running
+    if ! sudo systemctl is-active --quiet postgresql; then
+        log "INFO" "Starting PostgreSQL service..."
+        sudo systemctl start postgresql
+        sudo systemctl enable postgresql
+        sleep 5
     else
-        log "WARN" "Redis not detected on port 6379 - will deploy containerized version"
+        log "SUCCESS" "PostgreSQL service is running"
     fi
 
-    # Check for Ollama
-    if netstat -tuln 2>/dev/null | grep -q ":11434 " || ss -tuln 2>/dev/null | grep -q ":11434 "; then
-        log "SUCCESS" "Ollama found on port 11434 - will use existing service"
-    else
-        log "WARN" "Ollama not detected on port 11434 - will deploy containerized version"
+    # Configure PostgreSQL for external connections
+    log "INFO" "Configuring PostgreSQL for Docker access..."
+
+    # Find PostgreSQL config directory
+    local pg_version=$(sudo -u postgres psql -t -c "SELECT version();" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    local pg_config_dir="/etc/postgresql/$pg_version/main"
+
+    if [ ! -d "$pg_config_dir" ]; then
+        pg_config_dir=$(sudo find /etc -name "postgresql.conf" 2>/dev/null | head -1 | xargs dirname)
     fi
 
-    # Check critical frontend ports (3001-3003)
+    if [ -n "$pg_config_dir" ] && [ -f "$pg_config_dir/postgresql.conf" ]; then
+        # Configure listen_addresses
+        sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" "$pg_config_dir/postgresql.conf"
+
+        # Add Docker network to pg_hba.conf
+        if ! sudo grep -q "172.17.0.0/16" "$pg_config_dir/pg_hba.conf"; then
+            echo "host    all             all             172.17.0.0/16           md5" | sudo tee -a "$pg_config_dir/pg_hba.conf"
+            echo "host    all             all             127.0.0.1/32            md5" | sudo tee -a "$pg_config_dir/pg_hba.conf"
+        fi
+
+        # Restart PostgreSQL to apply changes
+        sudo systemctl restart postgresql
+        sleep 5
+    fi
+
+    # Create database and user
+    log "INFO" "Creating database and user..."
+    sudo -u postgres psql -c "CREATE DATABASE allemny_find_v2;" 2>/dev/null || log "INFO" "Database already exists"
+    sudo -u postgres psql -c "CREATE USER allemny_find WITH PASSWORD 'AFbqSrE?h8bPjSCs9#';" 2>/dev/null || log "INFO" "User already exists"
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE allemny_find_v2 TO allemny_find;"
+    sudo -u postgres psql -c "ALTER USER allemny_find CREATEDB;"
+
+    # Test PostgreSQL connectivity
+    log "INFO" "Testing PostgreSQL connectivity..."
+    if PGPASSWORD='AFbqSrE?h8bPjSCs9#' psql -h localhost -p 5432 -U allemny_find -d allemny_find_v2 -c "SELECT 1;" &>/dev/null; then
+        log "SUCCESS" "PostgreSQL is working correctly"
+    else
+        log "ERROR" "PostgreSQL connectivity test failed"
+        exit 1
+    fi
+}
+
+# Function to detect and install Redis
+setup_redis() {
+    log "INFO" "Setting up Redis..."
+
+    # Check if Redis is installed
+    if ! command -v redis-server &> /dev/null; then
+        log "INFO" "Installing Redis..."
+        case $PACKAGE_MANAGER in
+            "apt")
+                sudo apt-get update
+                sudo apt-get install -y redis-server
+                ;;
+            "yum"|"dnf")
+                sudo $INSTALL_CMD redis
+                ;;
+        esac
+    else
+        log "SUCCESS" "Redis is already installed"
+    fi
+
+    # Check if Redis service is running
+    if ! sudo systemctl is-active --quiet redis-server && ! sudo systemctl is-active --quiet redis; then
+        log "INFO" "Starting Redis service..."
+        sudo systemctl start redis-server 2>/dev/null || sudo systemctl start redis 2>/dev/null
+        sudo systemctl enable redis-server 2>/dev/null || sudo systemctl enable redis 2>/dev/null
+        sleep 3
+    else
+        log "SUCCESS" "Redis service is running"
+    fi
+
+    # Test Redis connectivity
+    log "INFO" "Testing Redis connectivity..."
+    if redis-cli ping &>/dev/null; then
+        log "SUCCESS" "Redis is working correctly"
+    else
+        log "ERROR" "Redis connectivity test failed"
+        exit 1
+    fi
+}
+
+# Function to detect and install Ollama
+setup_ollama() {
+    log "INFO" "Setting up Ollama..."
+
+    # Check if Ollama is installed
+    if ! command -v ollama &> /dev/null; then
+        log "INFO" "Installing Ollama..."
+        curl -fsSL https://ollama.ai/install.sh | sh
+        sleep 5
+    else
+        log "SUCCESS" "Ollama is already installed"
+    fi
+
+    # Check if Ollama service is running
+    if ! pgrep -f "ollama serve" &>/dev/null; then
+        log "INFO" "Starting Ollama service..."
+        nohup ollama serve &>/dev/null &
+        sleep 10
+    else
+        log "SUCCESS" "Ollama service is running"
+    fi
+
+    # Pull required model
+    log "INFO" "Ensuring nomic-embed-text model is available..."
+    if ! ollama list | grep -q "nomic-embed-text"; then
+        log "INFO" "Pulling nomic-embed-text model (this may take several minutes)..."
+        ollama pull nomic-embed-text
+    else
+        log "SUCCESS" "nomic-embed-text model is available"
+    fi
+
+    # Test Ollama connectivity
+    log "INFO" "Testing Ollama connectivity..."
+    if curl -s http://localhost:11434/api/tags &>/dev/null; then
+        log "SUCCESS" "Ollama is working correctly"
+    else
+        log "ERROR" "Ollama connectivity test failed"
+        exit 1
+    fi
+}
+
+# Function to check critical frontend ports
+check_frontend_ports() {
+    log "INFO" "Checking frontend port availability..."
+
     local frontend_available=false
     for port in 3001 3002 3003; do
         if ! (netstat -tuln 2>/dev/null | grep -q ":$port " || ss -tuln 2>/dev/null | grep -q ":$port "); then
@@ -249,7 +384,7 @@ check_required_services() {
         exit 1
     fi
 
-    log "SUCCESS" "Service check completed"
+    log "SUCCESS" "Frontend ports are available"
 }
 
 # Function to clone repository
@@ -322,41 +457,87 @@ start_services() {
     log "SUCCESS" "All services started successfully"
 }
 
-# Function to check service health
+# Function to perform comprehensive health checks
 check_service_health() {
-    local max_attempts=6
+    local max_attempts=15
     local attempt=0
 
-    log "INFO" "Checking service health..."
+    log "INFO" "Performing comprehensive health checks..."
 
     # Get ports from environment
     source .env
 
     while [ $attempt -lt $max_attempts ]; do
         local healthy_services=0
+        local total_services=5
 
-        # Check if containers are running
+        # 1. Check if containers are running
         if docker ps --filter "name=allemny_backend" --filter "status=running" --quiet | grep -q .; then
             log "SUCCESS" "Backend container is running"
             ((healthy_services++))
+        else
+            log "WARN" "Backend container not running"
         fi
 
         if docker ps --filter "name=allemny_frontend" --filter "status=running" --quiet | grep -q .; then
             log "SUCCESS" "Frontend container is running"
             ((healthy_services++))
+        else
+            log "WARN" "Frontend container not running"
         fi
 
-        if [ $healthy_services -eq 2 ]; then
-            log "SUCCESS" "All containers are running"
+        # 2. Test backend API health endpoint
+        if curl -s -f "http://localhost:$BACKEND_PORT/health" &>/dev/null; then
+            log "SUCCESS" "Backend API health check passed"
+            ((healthy_services++))
+        else
+            log "WARN" "Backend API health check failed"
+        fi
+
+        # 3. Test frontend accessibility
+        if curl -s -f "http://localhost:$FRONTEND_PORT" &>/dev/null; then
+            log "SUCCESS" "Frontend accessibility check passed"
+            ((healthy_services++))
+        else
+            log "WARN" "Frontend accessibility check failed"
+        fi
+
+        # 4. Test backend can connect to database
+        if docker exec allemny_backend python -c "
+import psycopg2
+try:
+    conn = psycopg2.connect('postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432/allemny_find_v2')
+    conn.close()
+    print('SUCCESS')
+except:
+    print('FAILED')
+" 2>/dev/null | grep -q "SUCCESS"; then
+            log "SUCCESS" "Backend database connectivity verified"
+            ((healthy_services++))
+        else
+            log "WARN" "Backend database connectivity failed"
+        fi
+
+        # If all checks pass, deployment is successful
+        if [ $healthy_services -eq $total_services ]; then
+            log "SUCCESS" "🎉 ALL HEALTH CHECKS PASSED - SYSTEM IS FULLY OPERATIONAL!"
             return 0
         fi
 
-        log "INFO" "Waiting for containers to be ready... ($((attempt + 1))/$max_attempts)"
-        sleep 10
+        log "INFO" "Health check progress: $healthy_services/$total_services services healthy (attempt $((attempt + 1))/$max_attempts)"
+        sleep 20
         ((attempt++))
     done
 
-    log "WARN" "Some containers may not be fully ready. Check logs with: docker-compose logs"
+    # If we reach here, something failed
+    log "ERROR" "❌ DEPLOYMENT FAILED - Not all health checks passed"
+    log "ERROR" "Final status: $healthy_services/$total_services services healthy"
+    log "INFO" "Check logs with: docker-compose logs"
+    log "INFO" "Check individual service status:"
+    log "INFO" "  Backend logs: docker logs allemny_backend"
+    log "INFO" "  Frontend logs: docker logs allemny_frontend"
+
+    return 1
 }
 
 # Function to initialize database
@@ -469,25 +650,36 @@ main() {
 
     # Pre-flight checks
     check_system_requirements
-    check_required_services
+    detect_package_manager
+    check_frontend_ports
 
-    # Install dependencies
+    # Install system dependencies
     install_system_dependencies
     install_docker
     install_docker_compose
     install_nodejs
 
+    # Setup required services (PostgreSQL, Redis, Ollama)
+    setup_postgresql
+    setup_redis
+    setup_ollama
+
     # Setup application
     clone_repository
     setup_environment
 
-    # Deploy services
+    # Deploy application containers
     start_services
-    initialize_database
-    setup_ollama
 
-    # Final summary
-    display_summary
+    # Comprehensive health verification
+    if check_service_health; then
+        log "SUCCESS" "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
+        display_summary
+    else
+        log "ERROR" "❌ DEPLOYMENT FAILED - Health checks did not pass"
+        log "INFO" "Please check the error messages above and retry"
+        exit 1
+    fi
 
     log "SUCCESS" "Deployment completed in $SECONDS seconds"
 }
