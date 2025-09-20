@@ -3844,7 +3844,8 @@ except Exception as e:
             local encoded_password=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$db_password'))" 2>/dev/null || echo "$db_password")
 
             # Update the DATABASE_URL in docker-compose.yml
-            sed -i.backup "s|DATABASE_URL=postgresql://allemny_find:[^@]*@[^:]*:5432/allemny_find_v2|DATABASE_URL=postgresql://allemny_find:$encoded_password@$working_ip:5432/allemny_find_v2|g" docker-compose.yml
+            # Handle both simple passwords and environment variable syntax
+            sed -i.backup "s|DATABASE_URL=postgresql://allemny_find:\([^@]*\)@\([^:]*\):5432/allemny_find_v2|DATABASE_URL=postgresql://allemny_find:\1@$working_ip:5432/allemny_find_v2|g" docker-compose.yml
 
             log "SUCCESS" "Updated DATABASE_URL in docker-compose.yml"
 

@@ -99,11 +99,24 @@ def run_migrations_online() -> None:
 
     if database_url:
         print(f"[ALEMBIC] Using DATABASE_URL environment variable: {database_url[:50]}...")
+        print(f"[ALEMBIC] Full DATABASE_URL (for debugging): {database_url}")
         # Create engine directly from DATABASE_URL
         from sqlalchemy import create_engine
-        connectable = create_engine(database_url, poolclass=pool.NullPool)
+        try:
+            # Test the connection before creating the engine
+            connectable = create_engine(database_url, poolclass=pool.NullPool)
+            # Test connection
+            with connectable.connect() as test_conn:
+                print("[ALEMBIC] Database connection test successful")
+        except Exception as e:
+            print(f"[ALEMBIC] ERROR: Failed to connect with DATABASE_URL: {e}")
+            print("[ALEMBIC] Falling back to alembic.ini configuration...")
+            database_url = None
     else:
-        print("[ALEMBIC] Using alembic.ini configuration (DATABASE_URL not found)")
+        print("[ALEMBIC] DATABASE_URL environment variable not found")
+
+    if not database_url:
+        print("[ALEMBIC] Using alembic.ini configuration")
         # Fallback to config file
         connectable = engine_from_config(
             config.get_section(config.config_ini_section, {}),
