@@ -3,18 +3,17 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: postgres
     container_name: allemny_postgres
+    ports:
+      - "5433:5432"  # Maps host port 5433 to container port 5432
     environment:
       POSTGRES_DB: allemny_find_v2
       POSTGRES_USER: allemny_find
       POSTGRES_PASSWORD: AFbqSrE?h8bPjSCs9#
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"  # Use env var or default to 5432
     networks:
       - allemny_network
     healthcheck:
@@ -24,12 +23,12 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Redis (for Celery)
+  # Redis
   redis:
-    image: redis:7-alpine
+    image: redis
     container_name: allemny_redis
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"  # Use env var or default to 6379
+      - "6380:6379"  # Maps host port 6380 to container port 6379
     networks:
       - allemny_network
     healthcheck:

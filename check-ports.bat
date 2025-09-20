@@ -37,25 +37,13 @@ if !attempt! lss !max_attempts! goto port_loop
 echo %start_port%
 exit /b 1
 
-REM Check PostgreSQL port (5432)
-echo Checking PostgreSQL port...
-call :check_port 5432 "PostgreSQL"
-if !errorlevel! == 0 (
-    set POSTGRES_HOST_PORT=5432
-) else (
-    for /f %%i in ('call :find_available_port 5433') do set POSTGRES_HOST_PORT=%%i
-    echo 📍 Will use port !POSTGRES_HOST_PORT! for PostgreSQL container
-)
+REM Fixed port mappings to avoid conflicts with existing services
+set POSTGRES_HOST_PORT=5433
+set REDIS_HOST_PORT=6380
 
-REM Check Redis port (6379)
-echo Checking Redis port...
-call :check_port 6379 "Redis"
-if !errorlevel! == 0 (
-    set REDIS_HOST_PORT=6379
-) else (
-    for /f %%i in ('call :find_available_port 6380') do set REDIS_HOST_PORT=%%i
-    echo 📍 Will use port !REDIS_HOST_PORT! for Redis container
-)
+echo ✅ Using fixed alternative ports:
+echo    PostgreSQL: host:5433 → container:5432
+echo    Redis: host:6380 → container:6379
 
 REM Check Backend port (8000)
 echo Checking Backend port...

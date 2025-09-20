@@ -38,23 +38,13 @@ find_available_port() {
     return 1
 }
 
-# Check PostgreSQL port (5432)
-echo "Checking PostgreSQL port..."
-if check_port 5432 "PostgreSQL"; then
-    POSTGRES_HOST_PORT=5432
-else
-    POSTGRES_HOST_PORT=$(find_available_port 5433)
-    echo "📍 Will use port $POSTGRES_HOST_PORT for PostgreSQL container"
-fi
+# Fixed port mappings to avoid conflicts with existing services
+POSTGRES_HOST_PORT=5433  # PostgreSQL container uses port 5433 (avoids 5432)
+REDIS_HOST_PORT=6380     # Redis container uses port 6380 (avoids 6379)
 
-# Check Redis port (6379)
-echo "Checking Redis port..."
-if check_port 6379 "Redis"; then
-    REDIS_HOST_PORT=6379
-else
-    REDIS_HOST_PORT=$(find_available_port 6380)
-    echo "📍 Will use port $REDIS_HOST_PORT for Redis container"
-fi
+echo "✅ Using fixed alternative ports:"
+echo "   PostgreSQL: host:5433 → container:5432"
+echo "   Redis: host:6380 → container:6379"
 
 # Check Backend port (8000)
 echo "Checking Backend port..."

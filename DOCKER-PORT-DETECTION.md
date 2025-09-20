@@ -27,15 +27,13 @@ docker-compose up
 
 ## How It Works
 
-1. **Port Detection**: The script checks if standard ports are already in use:
-   - PostgreSQL: 5432
-   - Redis: 6379
-   - Backend: 8000
-   - Frontend: 3001
+1. **Fixed Port Mapping**: Uses alternative ports to avoid conflicts with existing services:
+   - PostgreSQL: 5433 (host) → 5432 (container)
+   - Redis: 6380 (host) → 6379 (container)
+   - Backend: Detected dynamically (8000+)
+   - Frontend: Detected dynamically (3001+)
 
-2. **Conflict Resolution**: If a port is occupied, it finds the next available port:
-   - PostgreSQL: 5433, 5434, 5435...
-   - Redis: 6380, 6381, 6382...
+2. **Dynamic Detection**: For Backend and Frontend, if standard ports are occupied:
    - Backend: 8001, 8002, 8003...
    - Frontend: 3002, 3003, 3004...
 
@@ -48,8 +46,8 @@ docker-compose up
 ```
 Host System          Docker Containers
 ─────────────────    ─────────────────
-PostgreSQL:5432  →  postgres:5432
-Redis:6379       →  redis:6379
+PostgreSQL:5433  →  postgres:5432
+Redis:6380       →  redis:6379
 Backend:8000     →  backend:8000
 Frontend:3001    →  frontend:3001 (nginx proxy)
 ```
@@ -67,17 +65,22 @@ FRONTEND_HOST_PORT=3002
 
 ## Port Conflict Examples
 
-### Example 1: PostgreSQL Already Running
+### Example 1: Standard Usage
 ```
-⚠️  Port 5432 is already in use (may be existing PostgreSQL)
-📍 Will use port 5433 for PostgreSQL container
+✅ Using fixed alternative ports:
+   PostgreSQL: host:5433 → container:5432
+   Redis: host:6380 → container:6379
+✅ Port 8000 is available
+✅ Port 3001 is available
 ```
 
-### Example 2: All Ports Available
+### Example 2: Backend Port Conflict
 ```
-✅ Port 5432 is available
-✅ Port 6379 is available
-✅ Port 8000 is available
+✅ Using fixed alternative ports:
+   PostgreSQL: host:5433 → container:5432
+   Redis: host:6380 → container:6379
+⚠️  Port 8000 is already in use (may be existing Backend service)
+📍 Will use port 8001 for Backend container
 ✅ Port 3001 is available
 ```
 
@@ -116,7 +119,7 @@ ss -tuln | grep :5432
 After successful startup, access the application at:
 - Frontend: `http://localhost:${FRONTEND_HOST_PORT}`
 - Backend API: `http://localhost:${BACKEND_HOST_PORT}`
-- PostgreSQL: `localhost:${POSTGRES_HOST_PORT}`
-- Redis: `localhost:${REDIS_HOST_PORT}`
+- PostgreSQL: `localhost:5433` (mapped to container port 5432)
+- Redis: `localhost:6380` (mapped to container port 6379)
 
 The actual ports will be displayed when running the detection script.
