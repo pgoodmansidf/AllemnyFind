@@ -99,7 +99,7 @@ if %errorlevel% eq 0 (
 :: Check backend
 echo Checking backend...
 timeout /t 5 /nobreak >nul
-curl -s http://localhost:8000/health >nul 2>&1
+curl -s http://localhost:3001/health >nul 2>&1
 if %errorlevel% eq 0 (
     echo ✓ Backend is ready
 ) else (
@@ -108,7 +108,7 @@ if %errorlevel% eq 0 (
 
 :: Check frontend
 echo Checking frontend...
-curl -s http://localhost:3001 >nul 2>&1
+curl -s http://localhost:3000 >nul 2>&1
 if %errorlevel% eq 0 (
     echo ✓ Frontend is ready
 ) else (
@@ -123,10 +123,10 @@ echo.
 echo Services are starting up. Please wait 1-2 minutes for full initialization.
 echo.
 echo Access your application:
-echo   Frontend: http://localhost:3001
-echo   Backend API: http://localhost:8000
-echo   API Docs: http://localhost:8000/docs
-echo   Health Check: http://localhost:8000/health
+echo   Frontend: http://localhost:3000
+echo   Backend API: http://localhost:3001
+echo   API Docs: http://localhost:3001/docs
+echo   Health Check: http://localhost:3001/health
 echo.
 echo Default Admin Login:
 echo   Username: admin
@@ -140,7 +140,7 @@ echo   View running containers: docker-compose ps
 echo.
 echo [7/7] Opening application...
 timeout /t 3 /nobreak >nul
-start http://localhost:3001
+start http://localhost:3000
 echo.
 echo Press any key to exit...
 pause >nul

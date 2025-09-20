@@ -52,7 +52,7 @@ services:
       - ./backend/document_storage:/app/document_storage
       - ./backend/logs:/app/logs
     ports:
-      - "8000:8000"
+      - "3001:8000"
     networks:
       - allemny_network
     # No service dependencies - connects to host PostgreSQL
@@ -70,7 +70,7 @@ services:
       dockerfile: Dockerfile
     container_name: allemny_frontend
     ports:
-      - "3001:3001"
+      - "3000:3001"
     networks:
       - allemny_network
     depends_on:

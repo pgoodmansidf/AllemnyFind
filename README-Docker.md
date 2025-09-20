@@ -40,17 +40,17 @@ chmod +x deploy.sh && ./deploy.sh
 ## What's Included
 
 ### Docker Services
-- **Frontend**: React/Vite application (Port 3001)
-- **Backend**: FastAPI application (Port 8000)
+- **Frontend**: React/Vite application (Port 3000)
+- **Backend**: FastAPI application (Port 3001)
 
 ### External Prerequisites
 - **Database**: PostgreSQL 15+ with pgvector (localhost:5432)
 
 ### Access Points
-- Frontend: http://localhost:3001
-- Backend API: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:3001
+- API Documentation: http://localhost:3001/docs
+- Health Check: http://localhost:3001/health
 
 ### Default Admin Credentials
 - Username: `admin`
