@@ -2724,11 +2724,11 @@ start_services() {
 
         # Build containers
         if build_containers_robust; then
-            # Verify containers have latest Alembic fix
-            verify_container_alembic_fix
-
             # Start services
             if start_services_robust; then
+                # Verify containers have latest Alembic fix AFTER they're running
+                verify_container_alembic_fix
+
                 log "SUCCESS" "All services built and started successfully"
                 return 0
             else
@@ -4068,6 +4068,45 @@ except Exception as e:
         log "WARN" "⚠️ pgvector extension installation issue: $pgvector_result"
     fi
 
+    # Test Alembic configuration explicitly before running migrations
+    log "INFO" "Testing Alembic configuration and DATABASE_URL..."
+    local alembic_test_result=$(docker-compose exec -T backend python -c "
+import os
+import sys
+sys.path.append('/app')
+
+print('[ALEMBIC TEST] Starting Alembic environment test...')
+database_url = os.getenv('DATABASE_URL')
+if database_url:
+    print(f'[ALEMBIC TEST] DATABASE_URL found: {database_url[:50]}...')
+else:
+    print('[ALEMBIC TEST] ERROR: DATABASE_URL environment variable not found')
+    print(f'[ALEMBIC TEST] Available env vars: {list(os.environ.keys())}')
+
+# Test the actual Alembic env.py logic
+try:
+    from alembic import config
+    from alembic.script import ScriptDirectory
+    alembic_cfg = config.Config('/app/alembic.ini')
+
+    # Check if DATABASE_URL will be used
+    print(f'[ALEMBIC TEST] alembic.ini URL: {alembic_cfg.get_main_option(\"sqlalchemy.url\")}')
+    print('[ALEMBIC TEST] Alembic configuration test completed successfully')
+except Exception as e:
+    print(f'[ALEMBIC TEST] ERROR in Alembic configuration: {e}')
+" 2>&1)
+
+    log "INFO" "Alembic test output:"
+    echo "$alembic_test_result"
+
+    if echo "$alembic_test_result" | grep -q "DATABASE_URL found"; then
+        log "SUCCESS" "✅ Alembic can access DATABASE_URL environment variable"
+    else
+        log "ERROR" "❌ Alembic cannot access DATABASE_URL environment variable"
+        log "ERROR" "This explains why migrations are failing"
+        return 1
+    fi
+
     # Run database migrations
     log "INFO" "Running database migrations..."
     if ! docker-compose exec -T backend alembic upgrade head; then
@@ -4141,45 +4180,59 @@ ensure_latest_code() {
 verify_container_alembic_fix() {
     log "INFO" "🔍 Verifying containers have latest Alembic fix..."
 
-    # Build a temporary container to check the Alembic files
-    local temp_container="allemny_verify_$(date +%s)"
+    # Check if containers are built but not necessarily running yet
+    local backend_image=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
 
-    # Build just the backend service temporarily to verify files
-    if docker build -t "$temp_container" -f Pre-Prod/Dockerfile.backend . >/dev/null 2>&1; then
-        # Check if the Alembic fix is present in the container
-        local alembic_check=$(docker run --rm "$temp_container" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null || echo "0")
+    if [ -n "$backend_image" ]; then
+        log "INFO" "Found backend image: $backend_image"
+
+        # Check if the Alembic fix is present in the built image
+        local alembic_check=$(docker run --rm "$backend_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null || echo "0")
 
         if [ "$alembic_check" -gt 0 ]; then
-            log "SUCCESS" "✅ Container has Alembic DATABASE_URL fix"
+            log "SUCCESS" "✅ Container image has Alembic DATABASE_URL fix"
+
+            # Check for enhanced debugging code
+            local debug_check=$(docker run --rm "$backend_image" grep -c "ALEMBIC.*Using DATABASE_URL environment" /app/alembic/env.py 2>/dev/null || echo "0")
+            if [ "$debug_check" -gt 0 ]; then
+                log "SUCCESS" "✅ Container image has enhanced Alembic debugging"
+            else
+                log "WARN" "⚠️ Container image may lack enhanced Alembic debugging"
+
+                # Show the actual env.py content to debug
+                log "DEBUG" "Showing run_migrations_online function from container:"
+                docker run --rm "$backend_image" sed -n '90,130p' /app/alembic/env.py 2>/dev/null || true
+            fi
         else
-            log "ERROR" "❌ Container missing Alembic DATABASE_URL fix"
+            log "ERROR" "❌ Container image missing Alembic DATABASE_URL fix"
             log "ERROR" "The container was built with old code that doesn't check DATABASE_URL"
 
             # Show the current env.py content in container for debugging
-            log "DEBUG" "Current env.py content in container:"
-            docker run --rm "$temp_container" head -20 /app/alembic/env.py || true
-
-            # Clean up
-            docker rmi "$temp_container" >/dev/null 2>&1 || true
+            log "DEBUG" "Current run_migrations_online function in container:"
+            docker run --rm "$backend_image" sed -n '90,120p' /app/alembic/env.py 2>/dev/null || true
             return 1
         fi
 
         # Check alembic.ini as well
-        local ini_check=$(docker run --rm "$temp_container" grep -c "172.17.0.1" /app/alembic.ini 2>/dev/null || echo "0")
+        local ini_check=$(docker run --rm "$backend_image" grep -c "10\.0\.2\.2\|172\.17\.0\.1" /app/alembic.ini 2>/dev/null || echo "0")
 
         if [ "$ini_check" -gt 0 ]; then
-            log "SUCCESS" "✅ Container has alembic.ini Docker bridge IP fix"
+            log "SUCCESS" "✅ Container image has alembic.ini Docker bridge IP fix"
         else
-            log "WARN" "⚠️ Container may be missing alembic.ini Docker bridge IP fix"
+            log "WARN" "⚠️ Container image may be missing alembic.ini Docker bridge IP fix"
+            log "DEBUG" "Current alembic.ini content in container:"
+            docker run --rm "$backend_image" head -10 /app/alembic.ini 2>/dev/null || true
         fi
-
-        # Clean up temporary container
-        docker rmi "$temp_container" >/dev/null 2>&1 || true
 
         log "SUCCESS" "Container Alembic fix verification completed"
     else
-        log "WARN" "Could not build temporary container for verification"
-        log "WARN" "Assuming container build process included latest code"
+        log "ERROR" "❌ No backend container image found"
+        log "ERROR" "Cannot verify Alembic fix without built container image"
+
+        # List available images for debugging
+        log "DEBUG" "Available Docker images:"
+        docker images | head -10 || true
+        return 1
     fi
 }
 
