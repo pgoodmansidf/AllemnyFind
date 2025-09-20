@@ -56,7 +56,7 @@ export const useWebSocket = ({
   const connect = useCallback(() => {
     if (!user?.id) return;
 
-    const wsUrl = `ws://localhost:8002/ws/ws/${user.id}`;
+    const wsUrl = `ws://localhost:3001/ws/ws/${user.id}`;
 
     try {
       wsRef.current = new WebSocket(wsUrl);

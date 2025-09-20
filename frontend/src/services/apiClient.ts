@@ -4,8 +4,8 @@ import axios from 'axios';
 import type { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 
-// Get the API URL from environment variables or use default
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// Get the API URL from environment variables or use default (nginx proxy handles routing)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;

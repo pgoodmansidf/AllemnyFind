@@ -11,6 +11,9 @@ COPY package*.json ./
 RUN npm install
 
 # Copy source code
+# Set environment variable for Docker deployment
+ENV VITE_API_URL=http://localhost:3001/api/v1
+
 COPY . .
 
 # Build the application
