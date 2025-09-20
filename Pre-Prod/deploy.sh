@@ -2392,7 +2392,29 @@ start_services() {
     build_containers_robust() {
         log "INFO" "Building Docker containers with robust error handling..."
 
-        # Try parallel build first (fastest)
+        # Always clean up existing containers and images first to ensure latest code
+        log "INFO" "Cleaning up existing containers and images for fresh build..."
+        docker-compose down -v 2>/dev/null || true
+        docker system prune -f 2>/dev/null || true
+
+        # Force rebuild without any cache to ensure latest code
+        log "INFO" "Force rebuilding containers with latest code (no cache)..."
+        if retry_with_backoff 3 45 "docker-compose build --parallel --no-cache --force-rm"; then
+            log "SUCCESS" "Containers built successfully (force clean build)"
+            return 0
+        fi
+
+        log "WARN" "Parallel force build failed, trying sequential force build..."
+
+        # Try sequential build with force rebuild
+        if retry_with_backoff 3 45 "docker-compose build --no-cache --force-rm"; then
+            log "SUCCESS" "Containers built successfully (sequential force build)"
+            return 0
+        fi
+
+        log "WARN" "Force build failed, trying standard clean build..."
+
+        # Try standard clean build
         if retry_with_backoff 2 30 "docker-compose build --parallel --no-cache"; then
             log "SUCCESS" "Containers built successfully (parallel build)"
             return 0
@@ -2702,6 +2724,9 @@ start_services() {
 
         # Build containers
         if build_containers_robust; then
+            # Verify containers have latest Alembic fix
+            verify_container_alembic_fix
+
             # Start services
             if start_services_robust; then
                 log "SUCCESS" "All services built and started successfully"
@@ -4065,6 +4090,98 @@ except Exception as e:
     fi
 }
 
+# Function to ensure latest code is pulled from GitHub
+ensure_latest_code() {
+    log "INFO" "🔄 Ensuring latest code from GitHub..."
+
+    cd "$INSTALL_DIR"
+
+    # Pull latest changes from GitHub
+    log "INFO" "Pulling latest changes from GitHub..."
+    if ! git pull origin main; then
+        log "WARN" "Git pull failed, trying to reset to remote"
+        git fetch origin main
+        git reset --hard origin/main
+    fi
+
+    # Verify critical Alembic fix is present
+    log "INFO" "Verifying critical Alembic fix is present..."
+    if grep -q "os.getenv.*DATABASE_URL" backend/alembic/env.py; then
+        log "SUCCESS" "✅ Alembic DATABASE_URL fix verified in code"
+    else
+        log "ERROR" "❌ Alembic fix not found in backend/alembic/env.py"
+        log "ERROR" "This indicates the latest code was not pulled correctly"
+        return 1
+    fi
+
+    # Verify alembic.ini has been updated
+    if grep -q "172.17.0.1" backend/alembic.ini; then
+        log "SUCCESS" "✅ alembic.ini Docker bridge IP fix verified"
+    else
+        log "WARN" "⚠️ alembic.ini may not have Docker bridge IP fix"
+    fi
+
+    # Show latest commit to confirm version
+    local latest_commit=$(git rev-parse --short HEAD)
+    local latest_commit_msg=$(git log -1 --pretty=%B | head -1)
+    log "INFO" "Latest commit: $latest_commit - $latest_commit_msg"
+
+    # Check if this includes the Alembic fix commit
+    if git log --oneline -10 | grep -q "CRITICAL FIX.*Alembic"; then
+        log "SUCCESS" "✅ Alembic fix commit found in recent history"
+    else
+        log "WARN" "⚠️ Alembic fix commit not found in recent history"
+    fi
+
+    log "SUCCESS" "Latest code verification completed"
+}
+
+# Function to verify containers have the latest Alembic fix
+verify_container_alembic_fix() {
+    log "INFO" "🔍 Verifying containers have latest Alembic fix..."
+
+    # Build a temporary container to check the Alembic files
+    local temp_container="allemny_verify_$(date +%s)"
+
+    # Build just the backend service temporarily to verify files
+    if docker build -t "$temp_container" -f Pre-Prod/Dockerfile.backend . >/dev/null 2>&1; then
+        # Check if the Alembic fix is present in the container
+        local alembic_check=$(docker run --rm "$temp_container" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null || echo "0")
+
+        if [ "$alembic_check" -gt 0 ]; then
+            log "SUCCESS" "✅ Container has Alembic DATABASE_URL fix"
+        else
+            log "ERROR" "❌ Container missing Alembic DATABASE_URL fix"
+            log "ERROR" "The container was built with old code that doesn't check DATABASE_URL"
+
+            # Show the current env.py content in container for debugging
+            log "DEBUG" "Current env.py content in container:"
+            docker run --rm "$temp_container" head -20 /app/alembic/env.py || true
+
+            # Clean up
+            docker rmi "$temp_container" >/dev/null 2>&1 || true
+            return 1
+        fi
+
+        # Check alembic.ini as well
+        local ini_check=$(docker run --rm "$temp_container" grep -c "172.17.0.1" /app/alembic.ini 2>/dev/null || echo "0")
+
+        if [ "$ini_check" -gt 0 ]; then
+            log "SUCCESS" "✅ Container has alembic.ini Docker bridge IP fix"
+        else
+            log "WARN" "⚠️ Container may be missing alembic.ini Docker bridge IP fix"
+        fi
+
+        # Clean up temporary container
+        docker rmi "$temp_container" >/dev/null 2>&1 || true
+
+        log "SUCCESS" "Container Alembic fix verification completed"
+    else
+        log "WARN" "Could not build temporary container for verification"
+        log "WARN" "Assuming container build process included latest code"
+    fi
+}
+
 # Function to comprehensively test the bulletproof database solution
 test_bulletproof_database_solution() {
     log "INFO" "🧪 Testing bulletproof database connectivity solution..."
@@ -4403,6 +4520,9 @@ main() {
 
     # Configure PostgreSQL for Docker networking BEFORE starting containers
     configure_database_for_docker
+
+    # Ensure latest code is pulled from GitHub
+    ensure_latest_code
 
     # Deploy application containers
     start_services
