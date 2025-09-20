@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"  # Use env var or default to 5432
     networks:
       - allemny_network
     healthcheck:
@@ -22,13 +22,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # Redis (for Celery)
   redis:
     image: redis:7-alpine
     container_name: allemny_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"  # Use env var or default to 6379
     networks:
       - allemny_network
     healthcheck:
@@ -36,6 +37,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # FastAPI Backend
   backend:
@@ -44,14 +46,14 @@ services:
       dockerfile: Dockerfile
     container_name: allemny_backend
     environment:
-      # Database Configuration
+      # Database Configuration (Internal PostgreSQL container)
       DB_HOST: postgres
       DB_NAME: allemny_find_v2
       DB_USER: allemny_find
       DB_PASSWORD: AFbqSrE?h8bPjSCs9#
       DATABASE_URL: postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@postgres:5432/allemny_find_v2
-      
-      # Redis Configuration
+
+      # Redis Configuration (Internal Redis container)
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_URL: redis://redis:6379/0
@@ -70,8 +72,8 @@ services:
       GROQ_API_KEY: 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
       GROQ_MODEL: openai/gpt-oss-120b
       
-      # Ollama Configuration (if running externally)
-      OLLAMA_BASE_URL: http://localhost:11434
+      # Ollama Configuration (External Ollama)
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: nomic-embed-text
       
       # File Processing Configuration
@@ -92,7 +94,7 @@ services:
       - ./backend/document_storage:/app/document_storage
       - ./backend/logs:/app/logs
     ports:
-      - "8000:8000"
+      - "${BACKEND_HOST_PORT:-8000}:8000"  # Use env var or default to 8000
     networks:
       - allemny_network
     depends_on:
@@ -114,7 +116,7 @@ services:
       dockerfile: Dockerfile
     container_name: allemny_frontend
     ports:
-      - "3001:3001"  # Frontend stays on port 3001
+      - "${FRONTEND_HOST_PORT:-3001}:3001"  # Use env var or default to 3001
     networks:
       - allemny_network
     depends_on:
