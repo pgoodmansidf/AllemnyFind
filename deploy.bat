@@ -4,8 +4,10 @@ echo    Allemny Find V2 - 1-Click Docker Deployment
 echo ====================================================
 echo.
 
-:: Check if Docker is installed and running
-echo [1/6] Checking Docker installation...
+:: Check prerequisites
+echo [1/7] Checking prerequisites...
+
+:: Check Docker
 docker --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ERROR: Docker is not installed or not in PATH
@@ -23,21 +25,47 @@ if %errorlevel% neq 0 (
 )
 echo ✓ Docker is installed and running
 
+:: Check PostgreSQL
+echo Checking PostgreSQL connection...
+psql --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo WARNING: PostgreSQL client not found in PATH
+    echo PostgreSQL server is required for this application
+)
+
+:: Test PostgreSQL connection
+pg_isready -h localhost -p 5432 -U allemny_find -d allemny_find_v2 >nul 2>&1
+if %errorlevel% eq 0 (
+    echo ✓ PostgreSQL server is running and accessible
+) else (
+    echo ERROR: Cannot connect to PostgreSQL server
+    echo.
+    echo PREREQUISITES REQUIRED:
+    echo 1. PostgreSQL must be installed and running on localhost:5432
+    echo 2. Database 'allemny_find_v2' must exist
+    echo 3. User 'allemny_find' must have access
+    echo 4. Admin user must be created ^(admin/admin123^)
+    echo.
+    echo Please set up PostgreSQL first, then run this script again.
+    pause
+    exit /b 1
+)
+
 :: Stop and remove existing containers
 echo.
-echo [2/6] Stopping existing containers...
+echo [2/7] Stopping existing containers...
 docker-compose down --remove-orphans >nul 2>&1
 echo ✓ Existing containers stopped
 
 :: Remove old images to ensure fresh build
 echo.
-echo [3/6] Cleaning up old images...
+echo [3/7] Cleaning up old images...
 docker image prune -f >nul 2>&1
 echo ✓ Old images cleaned up
 
 :: Build and start services
 echo.
-echo [4/6] Building and starting services...
+echo [4/7] Building and starting services...
 echo This may take a few minutes on first run...
 docker-compose up --build -d
 
@@ -51,21 +79,21 @@ if %errorlevel% neq 0 (
 
 :: Wait for services to be ready
 echo.
-echo [5/6] Waiting for services to start...
+echo [5/7] Waiting for services to start...
 timeout /t 10 /nobreak >nul
 
 :: Check service health
 echo.
-echo [6/6] Checking service status...
+echo [6/7] Checking service status...
 echo.
 
-:: Check database
-echo Checking database...
-docker-compose exec -T postgres pg_isready -U allemny_find -d allemny_find_v2 >nul 2>&1
+:: Check database (host PostgreSQL)
+echo Checking database connection...
+pg_isready -h localhost -p 5432 -U allemny_find -d allemny_find_v2 >nul 2>&1
 if %errorlevel% eq 0 (
-    echo ✓ Database is ready
+    echo ✓ PostgreSQL database is accessible
 ) else (
-    echo ⚠ Database not ready yet, but continuing...
+    echo ⚠ Database connection issue, but continuing...
 )
 
 :: Check backend
@@ -110,7 +138,7 @@ echo   Stop services: docker-compose down
 echo   Restart services: docker-compose restart
 echo   View running containers: docker-compose ps
 echo.
-echo Opening frontend in your default browser...
+echo [7/7] Opening application...
 timeout /t 3 /nobreak >nul
 start http://localhost:3001
 echo.

@@ -2,6 +2,29 @@
 
 This directory contains a complete Docker deployment solution for the Allemny Find V2 application.
 
+## Prerequisites
+
+**IMPORTANT: PostgreSQL must be installed and running locally before deployment!**
+
+### Required Setup:
+1. **PostgreSQL 15+** installed and running on `localhost:5432`
+2. **Database**: `allemny_find_v2`
+3. **User**: `allemny_find` with password `AFbqSrE?h8bPjSCs9#`
+4. **Extensions**: pgvector enabled
+5. **Admin user**: Created with username `admin` and password `admin123`
+
+### Quick PostgreSQL Setup:
+```sql
+-- Connect as postgres superuser and run:
+CREATE DATABASE allemny_find_v2;
+CREATE USER allemny_find WITH PASSWORD 'AFbqSrE?h8bPjSCs9#';
+GRANT ALL PRIVILEGES ON DATABASE allemny_find_v2 TO allemny_find;
+
+-- Connect to allemny_find_v2 database:
+CREATE EXTENSION IF NOT EXISTS vector;
+GRANT ALL ON SCHEMA public TO allemny_find;
+```
+
 ## Quick Start (1-Click Deployment)
 
 **For Windows users:**
@@ -16,17 +39,18 @@ chmod +x deploy.sh && ./deploy.sh
 
 ## What's Included
 
-### Services
+### Docker Services
 - **Frontend**: React/Vite application (Port 3001)
 - **Backend**: FastAPI application (Port 8000)
-- **Database**: PostgreSQL 15 with pgvector extension (Port 5432)
 
-### Ports
+### External Prerequisites
+- **Database**: PostgreSQL 15+ with pgvector (localhost:5432)
+
+### Access Points
 - Frontend: http://localhost:3001
 - Backend API: http://localhost:8000
 - API Documentation: http://localhost:8000/docs
 - Health Check: http://localhost:8000/health
-- Database: localhost:5432
 
 ### Default Admin Credentials
 - Username: `admin`
