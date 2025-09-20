@@ -2392,15 +2392,60 @@ start_services() {
     build_containers_robust() {
         log "INFO" "Building Docker containers with robust error handling..."
 
-        # Always clean up existing containers and images first to ensure latest code
-        log "INFO" "Cleaning up existing containers and images for fresh build..."
+        # Ultra-aggressive cleanup to ensure latest code
+        log "INFO" "Ultra-aggressive cleanup for fresh build..."
         docker-compose down -v 2>/dev/null || true
-        docker system prune -f 2>/dev/null || true
 
-        # Force rebuild without any cache to ensure latest code
-        log "INFO" "Force rebuilding containers with latest code (no cache)..."
-        if retry_with_backoff 3 45 "docker-compose build --parallel --no-cache --force-rm"; then
-            log "SUCCESS" "Containers built successfully (force clean build)"
+        # Remove ALL related images and containers
+        log "INFO" "Removing all related images and containers..."
+        docker ps -aq --filter name=allemny | xargs -r docker rm -f 2>/dev/null || true
+        docker ps -aq --filter name=pre-prod | xargs -r docker rm -f 2>/dev/null || true
+        docker images -q --filter reference="pre-prod*" | xargs -r docker rmi -f 2>/dev/null || true
+        docker images -q --filter reference="allemny*" | xargs -r docker rmi -f 2>/dev/null || true
+
+        # Prune everything including build cache
+        docker system prune -af --volumes 2>/dev/null || true
+        docker builder prune -af 2>/dev/null || true
+
+        # Verify alembic files exist locally before building
+        log "INFO" "Verifying alembic files exist locally before Docker build..."
+        if [ ! -f "backend/alembic/env.py" ]; then
+            log "ERROR" "❌ backend/alembic/env.py not found in local directory"
+            return 1
+        fi
+
+        local local_alembic_check=$(grep -c "os.getenv.*DATABASE_URL" backend/alembic/env.py 2>/dev/null || echo "0")
+        if [ "$local_alembic_check" -gt 0 ]; then
+            log "SUCCESS" "✅ Local alembic/env.py has DATABASE_URL fix"
+        else
+            log "ERROR" "❌ Local alembic/env.py missing DATABASE_URL fix"
+            log "DEBUG" "Local env.py content:"
+            head -30 backend/alembic/env.py 2>/dev/null || true
+            return 1
+        fi
+
+        # Build with maximum force and verification
+        log "INFO" "Force rebuilding containers with latest code (ultra clean build)..."
+        if retry_with_backoff 3 60 "docker-compose build --parallel --no-cache --force-rm --pull"; then
+            log "SUCCESS" "Containers built successfully (ultra clean build)"
+
+            # Immediately verify the built image has the correct files
+            log "INFO" "Immediately verifying built container has latest alembic code..."
+            local new_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
+            if [ -n "$new_image" ]; then
+                local build_check=$(docker run --rm "$new_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
+                if [[ ! "$build_check" =~ ^[0-9]+$ ]]; then
+                    build_check=0
+                fi
+                if [ "$build_check" -gt 0 ]; then
+                    log "SUCCESS" "✅ Fresh built image has Alembic DATABASE_URL fix"
+                else
+                    log "ERROR" "❌ Fresh built image STILL missing Alembic fix - Docker build issue!"
+                    log "DEBUG" "Fresh built image env.py content:"
+                    docker run --rm "$new_image" head -30 /app/alembic/env.py 2>/dev/null || true
+                    return 1
+                fi
+            fi
             return 0
         fi
 
@@ -4181,19 +4226,27 @@ verify_container_alembic_fix() {
     log "INFO" "🔍 Verifying containers have latest Alembic fix..."
 
     # Check if containers are built but not necessarily running yet
-    local backend_image=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
+    local backend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
 
     if [ -n "$backend_image" ]; then
         log "INFO" "Found backend image: $backend_image"
 
         # Check if the Alembic fix is present in the built image
-        local alembic_check=$(docker run --rm "$backend_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null || echo "0")
+        local alembic_check=$(docker run --rm "$backend_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
+
+        # Ensure we have a valid number
+        if [[ ! "$alembic_check" =~ ^[0-9]+$ ]]; then
+            alembic_check=0
+        fi
 
         if [ "$alembic_check" -gt 0 ]; then
             log "SUCCESS" "✅ Container image has Alembic DATABASE_URL fix"
 
             # Check for enhanced debugging code
-            local debug_check=$(docker run --rm "$backend_image" grep -c "ALEMBIC.*Using DATABASE_URL environment" /app/alembic/env.py 2>/dev/null || echo "0")
+            local debug_check=$(docker run --rm "$backend_image" grep -c "ALEMBIC.*Using DATABASE_URL environment" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
+            if [[ ! "$debug_check" =~ ^[0-9]+$ ]]; then
+                debug_check=0
+            fi
             if [ "$debug_check" -gt 0 ]; then
                 log "SUCCESS" "✅ Container image has enhanced Alembic debugging"
             else
@@ -4214,8 +4267,10 @@ verify_container_alembic_fix() {
         fi
 
         # Check alembic.ini as well
-        local ini_check=$(docker run --rm "$backend_image" grep -c "10\.0\.2\.2\|172\.17\.0\.1" /app/alembic.ini 2>/dev/null || echo "0")
-
+        local ini_check=$(docker run --rm "$backend_image" grep -c "10\.0\.2\.2\|172\.17\.0\.1" /app/alembic.ini 2>/dev/null | head -1 || echo "0")
+        if [[ ! "$ini_check" =~ ^[0-9]+$ ]]; then
+            ini_check=0
+        fi
         if [ "$ini_check" -gt 0 ]; then
             log "SUCCESS" "✅ Container image has alembic.ini Docker bridge IP fix"
         else
