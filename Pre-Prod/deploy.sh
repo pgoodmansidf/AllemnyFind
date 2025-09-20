@@ -110,6 +110,64 @@ log() {
     fi
 }
 
+# Function to detect backend path relative to current directory
+detect_backend_path() {
+    # Check if we can find backend directory
+    if [ -d "../backend" ]; then
+        echo "../backend"
+    elif [ -d "backend" ]; then
+        echo "backend"
+    elif [ -d "$INSTALL_DIR/backend" ]; then
+        echo "$INSTALL_DIR/backend"
+    else
+        log "ERROR" "❌ Cannot locate backend directory from $(pwd)"
+        log "DEBUG" "Searched paths: ../backend, backend, $INSTALL_DIR/backend"
+        log "DEBUG" "Current directory contents:"
+        ls -la . | head -10 || true
+        return 1
+    fi
+}
+
+# Function to validate backend path exists and contains required files
+validate_backend_path() {
+    local backend_path="$1"
+
+    if [ ! -d "$backend_path" ]; then
+        log "ERROR" "❌ Backend directory not found at: $backend_path"
+        return 1
+    fi
+
+    if [ ! -d "$backend_path/alembic" ]; then
+        log "ERROR" "❌ Alembic directory not found at: $backend_path/alembic"
+        return 1
+    fi
+
+    if [ ! -f "$backend_path/alembic/env.py" ]; then
+        log "ERROR" "❌ Alembic env.py not found at: $backend_path/alembic/env.py"
+        return 1
+    fi
+
+    log "SUCCESS" "✅ Backend path validated: $backend_path"
+    return 0
+}
+
+# Function to ensure we're in the correct directory for operations
+ensure_correct_directory() {
+    local target_dir="$1"
+    local required_file="$2"
+
+    if [ ! -f "$required_file" ]; then
+        log "ERROR" "❌ Required file '$required_file' not found in $(pwd)"
+        log "ERROR" "❌ Make sure you're in the correct directory: $target_dir"
+        log "DEBUG" "Current directory: $(pwd)"
+        log "DEBUG" "Looking for: $required_file"
+        return 1
+    fi
+
+    log "DEBUG" "✅ Confirmed in correct directory: $(pwd)"
+    return 0
+}
+
 # Function to check system requirements
 check_system_requirements() {
     log "INFO" "Checking system requirements..."
@@ -2366,6 +2424,13 @@ setup_environment() {
 
     cd "$INSTALL_DIR/Pre-Prod"
 
+    # Validate we're in the correct directory
+    if [ ! -f "docker-compose.yml" ]; then
+        log "ERROR" "❌ docker-compose.yml not found in $(pwd)"
+        log "ERROR" "❌ Make sure you're running from the correct Pre-Prod directory"
+        return 1
+    fi
+
     # Make scripts executable
     chmod +x *.sh
 
@@ -2388,120 +2453,368 @@ start_services() {
 
     cd "$INSTALL_DIR/Pre-Prod"
 
-    # Function to build containers with retries and fallbacks
-    build_containers_robust() {
-        log "INFO" "Building Docker containers with robust error handling..."
+    # Validate directory structure and paths
+    log "INFO" "Validating directory structure and paths..."
 
-        # Ultra-aggressive cleanup to ensure latest code
-        log "INFO" "Ultra-aggressive cleanup for fresh build..."
-        docker-compose down -v 2>/dev/null || true
+    # Detect and validate backend path
+    local backend_path
+    if ! backend_path=$(detect_backend_path); then
+        return 1
+    fi
 
-        # Remove ALL related images and containers
-        log "INFO" "Removing all related images and containers..."
+    if ! validate_backend_path "$backend_path"; then
+        return 1
+    fi
+
+    log "DEBUG" "Current working directory: $(pwd)"
+    log "DEBUG" "Using backend path: $backend_path"
+
+    # Function to check Docker daemon availability and health
+    check_docker_daemon_health() {
+        log "INFO" "Checking Docker daemon health and availability..."
+
+        # Check if Docker is running
+        if ! docker info >/dev/null 2>&1; then
+            log "ERROR" "❌ Docker daemon is not running or not accessible"
+            log "INFO" "Attempting to start Docker daemon..."
+
+            # Try to start Docker service (different methods for different systems)
+            if systemctl is-active --quiet docker 2>/dev/null; then
+                log "INFO" "Docker service is active but daemon not responding"
+            elif command -v systemctl >/dev/null 2>&1; then
+                log "INFO" "Starting Docker using systemctl..."
+                sudo systemctl start docker 2>/dev/null || true
+                sleep 5
+            elif command -v service >/dev/null 2>&1; then
+                log "INFO" "Starting Docker using service command..."
+                sudo service docker start 2>/dev/null || true
+                sleep 5
+            fi
+
+            # Re-check after start attempt
+            if ! docker info >/dev/null 2>&1; then
+                log "ERROR" "❌ Failed to start Docker daemon"
+                return 1
+            fi
+        fi
+
+        # Check Docker daemon resources and configuration
+        local docker_info=$(docker info --format "{{json .}}" 2>/dev/null || echo "{}")
+        local server_version=$(echo "$docker_info" | grep -o '"ServerVersion":"[^"]*"' | cut -d'"' -f4 2>/dev/null || echo "unknown")
+        local memory_limit=$(echo "$docker_info" | grep -o '"MemTotal":[0-9]*' | cut -d':' -f2 2>/dev/null || echo "0")
+
+        log "SUCCESS" "✅ Docker daemon is healthy (version: $server_version)"
+
+        # Convert memory from bytes to GB for readability
+        if [ "$memory_limit" -gt 0 ]; then
+            local memory_gb=$((memory_limit / 1024 / 1024 / 1024))
+            log "INFO" "Docker available memory: ${memory_gb}GB"
+            if [ "$memory_gb" -lt 2 ]; then
+                log "WARN" "⚠️ Low Docker memory limit: ${memory_gb}GB (recommended: 4GB+)"
+            fi
+        fi
+
+        # Check disk space for Docker
+        local docker_root=$(docker info --format "{{.DockerRootDir}}" 2>/dev/null || echo "/var/lib/docker")
+        local available_space_kb=$(df "$docker_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+        local available_space_gb=$((available_space_kb / 1024 / 1024))
+
+        log "INFO" "Docker root directory: $docker_root (${available_space_gb}GB free)"
+        if [ "$available_space_gb" -lt 5 ]; then
+            log "WARN" "⚠️ Low disk space for Docker: ${available_space_gb}GB (recommended: 10GB+)"
+        fi
+
+        return 0
+    }
+
+    # Function to handle Docker daemon restart scenarios
+    handle_docker_daemon_restart() {
+        log "INFO" "Handling potential Docker daemon restart scenario..."
+
+        # Wait for daemon to be fully ready after restart
+        local max_wait=30
+        local wait_count=0
+
+        while [ $wait_count -lt $max_wait ]; do
+            if docker info >/dev/null 2>&1; then
+                log "SUCCESS" "✅ Docker daemon is responsive"
+                return 0
+            fi
+
+            log "INFO" "Waiting for Docker daemon to be ready... ($((wait_count + 1))/$max_wait)"
+            sleep 2
+            wait_count=$((wait_count + 1))
+        done
+
+        log "ERROR" "❌ Docker daemon failed to become ready within ${max_wait} attempts"
+        return 1
+    }
+
+    # Function to perform smart Docker cleanup with selective retention
+    perform_smart_docker_cleanup() {
+        log "INFO" "Performing smart Docker cleanup..."
+
+        # Stop and remove existing compose services first
+        docker-compose down -v --remove-orphans 2>/dev/null || true
+
+        # Get current images that we might want to preserve
+        local current_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "(postgres|redis|nginx)" | head -5)
+
+        # Remove project-specific containers and images
+        log "INFO" "Removing project-specific containers and images..."
         docker ps -aq --filter name=allemny | xargs -r docker rm -f 2>/dev/null || true
         docker ps -aq --filter name=pre-prod | xargs -r docker rm -f 2>/dev/null || true
         docker images -q --filter reference="pre-prod*" | xargs -r docker rmi -f 2>/dev/null || true
         docker images -q --filter reference="allemny*" | xargs -r docker rmi -f 2>/dev/null || true
 
-        # Prune everything including build cache
-        docker system prune -af --volumes 2>/dev/null || true
-        docker builder prune -af 2>/dev/null || true
+        # Selective system cleanup - remove dangling images but preserve base images
+        log "INFO" "Performing selective system cleanup..."
+        docker image prune -f 2>/dev/null || true
+        docker volume prune -f 2>/dev/null || true
+        docker network prune -f 2>/dev/null || true
+
+        # Only do aggressive cleanup if disk space is critically low
+        local docker_root=$(docker info --format "{{.DockerRootDir}}" 2>/dev/null || echo "/var/lib/docker")
+        local available_space_kb=$(df "$docker_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+        local available_space_gb=$((available_space_kb / 1024 / 1024))
+
+        if [ "$available_space_gb" -lt 3 ]; then
+            log "WARN" "⚠️ Low disk space detected (${available_space_gb}GB), performing aggressive cleanup..."
+            docker system prune -af --volumes 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+        else
+            log "INFO" "Sufficient disk space available (${available_space_gb}GB), preserving build cache"
+        fi
+
+        log "SUCCESS" "Smart Docker cleanup completed"
+    }
+
+    # Function to perform pre-build verification
+    perform_prebuild_verification() {
+        log "INFO" "Performing comprehensive pre-build verification..."
 
         # Verify alembic files exist locally before building
-        log "INFO" "Verifying alembic files exist locally before Docker build..."
-        if [ ! -f "backend/alembic/env.py" ]; then
-            log "ERROR" "❌ backend/alembic/env.py not found in local directory"
+        if [ ! -f "$backend_path/alembic/env.py" ]; then
+            log "ERROR" "❌ $backend_path/alembic/env.py not found in local directory"
             return 1
         fi
 
-        local local_alembic_check=$(grep -c "os.getenv.*DATABASE_URL" backend/alembic/env.py 2>/dev/null || echo "0")
+        local local_alembic_check=$(grep -c "os.getenv.*DATABASE_URL" "$backend_path/alembic/env.py" 2>/dev/null || echo "0")
         if [ "$local_alembic_check" -gt 0 ]; then
             log "SUCCESS" "✅ Local alembic/env.py has DATABASE_URL fix"
         else
             log "ERROR" "❌ Local alembic/env.py missing DATABASE_URL fix"
             log "DEBUG" "Local env.py content:"
-            head -30 backend/alembic/env.py 2>/dev/null || true
+            head -30 "$backend_path/alembic/env.py" 2>/dev/null || true
             return 1
         fi
 
-        # Build with maximum force and verification
-        log "INFO" "Force rebuilding containers with latest code (ultra clean build)..."
-        if retry_with_backoff 3 60 "docker-compose build --parallel --no-cache --force-rm --pull"; then
-            log "SUCCESS" "Containers built successfully (ultra clean build)"
+        # Verify Dockerfiles exist
+        local dockerfiles=("Pre-Prod/Dockerfile.backend" "Pre-Prod/Dockerfile.frontend")
+        for dockerfile in "${dockerfiles[@]}"; do
+            if [ ! -f "$dockerfile" ]; then
+                log "ERROR" "❌ Required Dockerfile not found: $dockerfile"
+                return 1
+            fi
+        done
 
-            # Immediately verify the built image has the correct files
-            log "INFO" "Immediately verifying built container has latest alembic code..."
-            local new_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
-            if [ -n "$new_image" ]; then
-                local build_check=$(docker run --rm "$new_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
-                if [[ ! "$build_check" =~ ^[0-9]+$ ]]; then
-                    build_check=0
-                fi
-                if [ "$build_check" -gt 0 ]; then
-                    log "SUCCESS" "✅ Fresh built image has Alembic DATABASE_URL fix"
+        # Verify source directories exist
+        if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
+            log "ERROR" "❌ Required source directories (backend/frontend) not found"
+            return 1
+        fi
+
+        log "SUCCESS" "✅ Pre-build verification passed"
+        return 0
+    }
+
+    # Function to build with enhanced retry logic and timeout handling
+    build_with_enhanced_retry() {
+        local build_command="$1"
+        local max_timeout="$2"
+        local description="$3"
+
+        log "INFO" "Building with enhanced retry: $description"
+        log "DEBUG" "Command: $build_command"
+        log "DEBUG" "Max timeout: ${max_timeout}s"
+
+        # Use timeout with the build command to prevent hanging
+        if timeout "$max_timeout" $build_command; then
+            log "SUCCESS" "✅ $description completed successfully"
+            return 0
+        else
+            local exit_code=$?
+            if [ $exit_code -eq 124 ]; then
+                log "ERROR" "❌ $description timed out after ${max_timeout}s"
+            else
+                log "ERROR" "❌ $description failed with exit code: $exit_code"
+            fi
+            return 1
+        fi
+    }
+
+    # Function to build containers with retries and fallbacks
+    build_containers_robust() {
+        log "INFO" "Building Docker containers with robust error handling..."
+
+        # Step 1: Check Docker daemon health first
+        if ! check_docker_daemon_health; then
+            log "ERROR" "Docker daemon health check failed, cannot proceed with build"
+            return 1
+        fi
+
+        # Step 2: Validate Docker Compose configuration before cleanup
+        if ! docker-compose config >/dev/null 2>&1; then
+            log "ERROR" "❌ Invalid docker-compose.yml - cannot proceed with build"
+            docker-compose config 2>&1 | while read line; do
+                log "ERROR" "  Config Error: $line"
+            done
+            return 1
+        fi
+
+        # Step 3: Smart cleanup with verification
+        perform_smart_docker_cleanup
+
+        # Step 4: Pre-build verification
+        if ! perform_prebuild_verification; then
+            log "ERROR" "Pre-build verification failed"
+            return 1
+        fi
+
+        # Step 5: Enhanced build process with multiple fallback strategies
+        local build_strategies=(
+            "docker-compose build --parallel --no-cache --force-rm --pull|300|Parallel Force Build with Pull"
+            "docker-compose build --no-cache --force-rm|240|Sequential Force Build"
+            "docker-compose build --parallel --no-cache|180|Parallel Clean Build"
+            "docker-compose build --no-cache|150|Sequential Clean Build"
+            "docker-compose build|120|Incremental Build"
+        )
+
+        for strategy in "${build_strategies[@]}"; do
+            IFS='|' read -r build_cmd timeout_val description <<< "$strategy"
+
+            log "INFO" "Attempting: $description"
+            log "DEBUG" "Command: $build_cmd (timeout: ${timeout_val}s)"
+
+            if build_with_enhanced_retry "$build_cmd" "$timeout_val" "$description"; then
+                # Immediately verify the built image has the correct files
+                if verify_built_images; then
+                    log "SUCCESS" "✅ $description completed and verified successfully"
+                    return 0
                 else
-                    log "ERROR" "❌ Fresh built image STILL missing Alembic fix - Docker build issue!"
-                    log "DEBUG" "Fresh built image env.py content:"
-                    docker run --rm "$new_image" head -30 /app/alembic/env.py 2>/dev/null || true
-                    return 1
+                    log "WARN" "⚠️ $description completed but verification failed, trying next strategy"
+                fi
+            else
+                log "WARN" "⚠️ $description failed, trying next strategy"
+
+                # Handle potential daemon restart between strategies
+                if ! docker info >/dev/null 2>&1; then
+                    log "WARN" "Docker daemon unresponsive, attempting restart handling"
+                    if ! handle_docker_daemon_restart; then
+                        log "ERROR" "Failed to restore Docker daemon connectivity"
+                        return 1
+                    fi
                 fi
             fi
-            return 0
+
+            # Brief pause between strategies to allow system recovery
+            sleep 5
+        done
+
+        # Final fallback: Individual service builds
+        log "WARN" "All standard build strategies failed, attempting individual service builds..."
+        return build_services_individually
+    }
+
+    # Function to verify built images
+    verify_built_images() {
+        log "INFO" "Verifying built Docker images..."
+
+        # Check if backend image was built
+        local backend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "(pre-prod[_-]backend|allemny[_-]backend)" | head -1)
+
+        if [ -z "$backend_image" ]; then
+            log "ERROR" "❌ No backend image found after build"
+            return 1
         fi
 
-        log "WARN" "Parallel force build failed, trying sequential force build..."
+        log "INFO" "Found backend image: $backend_image"
 
-        # Try sequential build with force rebuild
-        if retry_with_backoff 3 45 "docker-compose build --no-cache --force-rm"; then
-            log "SUCCESS" "Containers built successfully (sequential force build)"
-            return 0
+        # Verify the Alembic fix is present in the built image
+        local alembic_check=$(docker run --rm "$backend_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
+
+        if [[ ! "$alembic_check" =~ ^[0-9]+$ ]]; then
+            alembic_check=0
         fi
 
-        log "WARN" "Force build failed, trying standard clean build..."
-
-        # Try standard clean build
-        if retry_with_backoff 2 30 "docker-compose build --parallel --no-cache"; then
-            log "SUCCESS" "Containers built successfully (parallel build)"
-            return 0
+        if [ "$alembic_check" -gt 0 ]; then
+            log "SUCCESS" "✅ Backend image has Alembic DATABASE_URL fix"
+        else
+            log "ERROR" "❌ Backend image missing Alembic fix - Docker build issue!"
+            log "DEBUG" "Backend image env.py content:"
+            docker run --rm "$backend_image" head -30 /app/alembic/env.py 2>/dev/null || true
+            return 1
         fi
 
-        log "WARN" "Parallel build failed, trying sequential build..."
+        # Check if frontend image was built
+        local frontend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "(pre-prod[_-]frontend|allemny[_-]frontend)" | head -1)
 
-        # Try sequential build (more reliable)
-        if retry_with_backoff 2 30 "docker-compose build --no-cache"; then
-            log "SUCCESS" "Containers built successfully (sequential build)"
-            return 0
+        if [ -n "$frontend_image" ]; then
+            log "SUCCESS" "✅ Frontend image built: $frontend_image"
+        else
+            log "WARN" "⚠️ No frontend image found (may be optional)"
         fi
 
-        log "WARN" "Clean build failed, trying incremental build..."
+        return 0
+    }
 
-        # Try incremental build (may use cached layers)
-        if retry_with_backoff 2 30 "docker-compose build"; then
-            log "SUCCESS" "Containers built successfully (incremental build)"
-            return 0
-        fi
+    # Function to build services individually as final fallback
+    build_services_individually() {
+        log "INFO" "Building services individually as final fallback..."
 
-        # Individual service build as last resort
-        log "WARN" "Full compose build failed, trying individual service builds..."
         local services=("backend" "frontend")
         local built_services=()
         local failed_services=()
 
         for service in "${services[@]}"; do
-            if retry_with_backoff 2 20 "docker-compose build $service"; then
-                log "SUCCESS" "Service '$service' built successfully"
-                built_services+=("$service")
-            else
-                log "ERROR" "Service '$service' build failed"
+            log "INFO" "Building service: $service"
+
+            local service_strategies=(
+                "docker-compose build --no-cache --force-rm $service|180|Force Build $service"
+                "docker-compose build --no-cache $service|120|Clean Build $service"
+                "docker-compose build $service|90|Incremental Build $service"
+            )
+
+            local service_built=false
+            for strategy in "${service_strategies[@]}"; do
+                IFS='|' read -r build_cmd timeout_val description <<< "$strategy"
+
+                if build_with_enhanced_retry "$build_cmd" "$timeout_val" "$description"; then
+                    log "SUCCESS" "✅ Service '$service' built successfully"
+                    built_services+=("$service")
+                    service_built=true
+                    break
+                fi
+            done
+
+            if [ "$service_built" = false ]; then
+                log "ERROR" "❌ Service '$service' build failed with all strategies"
                 failed_services+=("$service")
             fi
         done
 
         if [ ${#failed_services[@]} -eq 0 ]; then
-            log "SUCCESS" "All services built individually"
+            log "SUCCESS" "✅ All services built individually"
             return 0
         else
-            log "ERROR" "Failed to build services: ${failed_services[*]}"
+            log "ERROR" "❌ Failed to build services: ${failed_services[*]}"
+
+            # Log final diagnostics
+            log "INFO" "Final build diagnostics:"
+            docker images | head -10 | while read line; do
+                log "INFO" "  Images: $line"
+            done
+
             return 1
         fi
     }
@@ -2746,18 +3059,70 @@ start_services() {
 
     # Function to handle Docker system cleanup if needed
     cleanup_docker_system() {
-        log "INFO" "Performing Docker system cleanup to free resources..."
+        log "INFO" "Performing enhanced Docker system cleanup to free resources..."
 
-        # Remove dangling images
-        docker image prune -f 2>/dev/null || true
+        # Check available disk space before cleanup
+        local docker_root=$(docker info --format "{{.DockerRootDir}}" 2>/dev/null || echo "/var/lib/docker")
+        local space_before_kb=$(df "$docker_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+        local space_before_gb=$((space_before_kb / 1024 / 1024))
 
-        # Remove unused volumes (but preserve data)
-        docker volume prune -f 2>/dev/null || true
+        log "INFO" "Docker disk space before cleanup: ${space_before_gb}GB available"
+
+        # Remove dangling images with logging
+        log "INFO" "Removing dangling Docker images..."
+        local dangling_count=$(docker images -f "dangling=true" -q | wc -l 2>/dev/null || echo "0")
+        if [ "$dangling_count" -gt 0 ]; then
+            docker image prune -f 2>/dev/null || true
+            log "INFO" "Removed $dangling_count dangling images"
+        else
+            log "INFO" "No dangling images to remove"
+        fi
+
+        # Remove unused volumes with selective preservation
+        log "INFO" "Removing unused Docker volumes (preserving active data)..."
+        local volume_count=$(docker volume ls -q | wc -l 2>/dev/null || echo "0")
+        if [ "$volume_count" -gt 0 ]; then
+            # List volumes before cleanup for debugging
+            log "DEBUG" "Volumes before cleanup:"
+            docker volume ls | head -5 2>/dev/null || true
+
+            docker volume prune -f 2>/dev/null || true
+
+            local volume_count_after=$(docker volume ls -q | wc -l 2>/dev/null || echo "0")
+            local removed_volumes=$((volume_count - volume_count_after))
+            log "INFO" "Removed $removed_volumes unused volumes, $volume_count_after remaining"
+        else
+            log "INFO" "No volumes to clean up"
+        fi
 
         # Remove unused networks
-        docker network prune -f 2>/dev/null || true
+        log "INFO" "Removing unused Docker networks..."
+        local network_count=$(docker network ls -q | wc -l 2>/dev/null || echo "0")
+        if [ "$network_count" -gt 3 ]; then  # Default networks are usually 3
+            docker network prune -f 2>/dev/null || true
+            local network_count_after=$(docker network ls -q | wc -l 2>/dev/null || echo "0")
+            local removed_networks=$((network_count - network_count_after))
+            log "INFO" "Removed $removed_networks unused networks, $network_count_after remaining"
+        else
+            log "INFO" "No unused networks to remove"
+        fi
 
-        log "SUCCESS" "Docker system cleanup completed"
+        # Check disk space after cleanup
+        local space_after_kb=$(df "$docker_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+        local space_after_gb=$((space_after_kb / 1024 / 1024))
+        local space_freed_gb=$((space_after_gb - space_before_gb))
+
+        if [ "$space_freed_gb" -gt 0 ]; then
+            log "SUCCESS" "Docker cleanup completed - freed ${space_freed_gb}GB (${space_after_gb}GB available)"
+        else
+            log "SUCCESS" "Docker cleanup completed - ${space_after_gb}GB available"
+        fi
+
+        # Log system status after cleanup
+        log "DEBUG" "Docker system status after cleanup:"
+        docker system df 2>/dev/null | while read line; do
+            log "DEBUG" "  $line"
+        done
     }
 
     # Main service deployment logic
@@ -3500,6 +3865,12 @@ validate_container_environment() {
 
     cd "$INSTALL_DIR/Pre-Prod"
 
+    # Validate we're in the correct directory
+    if [ ! -f "docker-compose.yml" ]; then
+        log "ERROR" "❌ docker-compose.yml not found in $(pwd)"
+        return 1
+    fi
+
     # Check if .env file exists and has correct variables
     if [ ! -f ".env" ]; then
         log "WARN" "Creating missing .env file..."
@@ -4038,6 +4409,12 @@ initialize_database() {
 
     cd "$INSTALL_DIR/Pre-Prod"
 
+    # Validate directory structure
+    if [ ! -f "docker-compose.yml" ]; then
+        log "ERROR" "❌ docker-compose.yml not found in $(pwd)"
+        return 1
+    fi
+
     # First validate and fix environment variables
     if ! validate_container_environment; then
         log "ERROR" "Container environment validation failed"
@@ -4159,8 +4536,14 @@ except Exception as e:
         return 1
     fi
 
+    # Detect backend path for this function
+    local backend_path
+    if ! backend_path=$(detect_backend_path); then
+        return 1
+    fi
+
     # Setup initial data if needed
-    if [ -f "../backend/scripts/init_data.py" ]; then
+    if [ -f "$backend_path/scripts/init_data.py" ]; then
         log "INFO" "Setting up initial data..."
         docker-compose exec -T backend python scripts/init_data.py
     fi
@@ -4223,70 +4606,164 @@ ensure_latest_code() {
 
 # Function to verify containers have the latest Alembic fix
 verify_container_alembic_fix() {
-    log "INFO" "🔍 Verifying containers have latest Alembic fix..."
+    log "INFO" "🔍 Verifying containers have latest Alembic fix with enhanced pattern matching..."
 
-    # Check if containers are built but not necessarily running yet
-    local backend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "pre-prod[_-]backend" | head -1)
+    # Enhanced backend image detection with multiple naming patterns
+    local backend_image=""
+    local image_patterns=(
+        "pre-prod[_-]backend"
+        "allemny[_-]backend"
+        ".*backend.*pre-prod"
+        ".*backend.*allemny"
+    )
+
+    for pattern in "${image_patterns[@]}"; do
+        backend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "$pattern" | head -1)
+        if [ -n "$backend_image" ]; then
+            log "INFO" "Found backend image using pattern '$pattern': $backend_image"
+            break
+        fi
+    done
+
+    # If no specific image found, try to find any image with "backend" in the name
+    if [ -z "$backend_image" ]; then
+        backend_image=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -i backend | head -1)
+        if [ -n "$backend_image" ]; then
+            log "INFO" "Found potential backend image: $backend_image"
+        fi
+    fi
 
     if [ -n "$backend_image" ]; then
-        log "INFO" "Found backend image: $backend_image"
+        log "INFO" "Verifying backend image: $backend_image"
 
-        # Check if the Alembic fix is present in the built image
-        local alembic_check=$(docker run --rm "$backend_image" grep -c "os.getenv.*DATABASE_URL" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
+        # Enhanced Alembic fix verification with multiple pattern checks
+        local alembic_patterns=(
+            "os\.getenv.*DATABASE_URL"
+            "DATABASE_URL.*os\.getenv"
+            "getenv.*DATABASE_URL"
+            "environment.*DATABASE_URL"
+        )
 
-        # Ensure we have a valid number
-        if [[ ! "$alembic_check" =~ ^[0-9]+$ ]]; then
-            alembic_check=0
-        fi
+        local alembic_fix_found=false
+        for pattern in "${alembic_patterns[@]}"; do
+            local check_result=$(docker run --rm "$backend_image" grep -c "$pattern" /app/alembic/env.py 2>/dev/null || echo "0")
 
-        if [ "$alembic_check" -gt 0 ]; then
-            log "SUCCESS" "✅ Container image has Alembic DATABASE_URL fix"
-
-            # Check for enhanced debugging code
-            local debug_check=$(docker run --rm "$backend_image" grep -c "ALEMBIC.*Using DATABASE_URL environment" /app/alembic/env.py 2>/dev/null | head -1 || echo "0")
-            if [[ ! "$debug_check" =~ ^[0-9]+$ ]]; then
-                debug_check=0
+            if [[ "$check_result" =~ ^[0-9]+$ ]] && [ "$check_result" -gt 0 ]; then
+                log "SUCCESS" "✅ Container image has Alembic DATABASE_URL fix (pattern: $pattern)"
+                alembic_fix_found=true
+                break
             fi
-            if [ "$debug_check" -gt 0 ]; then
-                log "SUCCESS" "✅ Container image has enhanced Alembic debugging"
-            else
-                log "WARN" "⚠️ Container image may lack enhanced Alembic debugging"
+        done
 
-                # Show the actual env.py content to debug
-                log "DEBUG" "Showing run_migrations_online function from container:"
-                docker run --rm "$backend_image" sed -n '90,130p' /app/alembic/env.py 2>/dev/null || true
-            fi
-        else
+        if [ "$alembic_fix_found" = false ]; then
             log "ERROR" "❌ Container image missing Alembic DATABASE_URL fix"
             log "ERROR" "The container was built with old code that doesn't check DATABASE_URL"
 
-            # Show the current env.py content in container for debugging
-            log "DEBUG" "Current run_migrations_online function in container:"
-            docker run --rm "$backend_image" sed -n '90,120p' /app/alembic/env.py 2>/dev/null || true
+            # Enhanced debugging output
+            log "DEBUG" "Attempting to show env.py content from container:"
+            if docker run --rm "$backend_image" test -f /app/alembic/env.py 2>/dev/null; then
+                log "DEBUG" "File exists, showing relevant sections:"
+                docker run --rm "$backend_image" sed -n '80,140p' /app/alembic/env.py 2>/dev/null || \
+                docker run --rm "$backend_image" head -50 /app/alembic/env.py 2>/dev/null || \
+                log "DEBUG" "Could not read env.py content"
+            else
+                log "DEBUG" "env.py file not found in container at /app/alembic/env.py"
+                log "DEBUG" "Checking for alternative locations:"
+                docker run --rm "$backend_image" find /app -name "env.py" 2>/dev/null || true
+            fi
             return 1
         fi
 
-        # Check alembic.ini as well
-        local ini_check=$(docker run --rm "$backend_image" grep -c "10\.0\.2\.2\|172\.17\.0\.1" /app/alembic.ini 2>/dev/null | head -1 || echo "0")
-        if [[ ! "$ini_check" =~ ^[0-9]+$ ]]; then
-            ini_check=0
-        fi
-        if [ "$ini_check" -gt 0 ]; then
-            log "SUCCESS" "✅ Container image has alembic.ini Docker bridge IP fix"
-        else
-            log "WARN" "⚠️ Container image may be missing alembic.ini Docker bridge IP fix"
-            log "DEBUG" "Current alembic.ini content in container:"
-            docker run --rm "$backend_image" head -10 /app/alembic.ini 2>/dev/null || true
+        # Enhanced debugging code verification
+        local debug_patterns=(
+            "ALEMBIC.*Using DATABASE_URL"
+            "Using DATABASE_URL environment"
+            "DATABASE_URL.*environment"
+            "print.*DATABASE_URL"
+            "log.*DATABASE_URL"
+        )
+
+        local debug_found=false
+        for pattern in "${debug_patterns[@]}"; do
+            local debug_check=$(docker run --rm "$backend_image" grep -c "$pattern" /app/alembic/env.py 2>/dev/null || echo "0")
+            if [[ "$debug_check" =~ ^[0-9]+$ ]] && [ "$debug_check" -gt 0 ]; then
+                log "SUCCESS" "✅ Container image has enhanced Alembic debugging (pattern: $pattern)"
+                debug_found=true
+                break
+            fi
+        done
+
+        if [ "$debug_found" = false ]; then
+            log "WARN" "⚠️ Container image may lack enhanced Alembic debugging"
         fi
 
-        log "SUCCESS" "Container Alembic fix verification completed"
+        # Enhanced alembic.ini verification with multiple IP patterns
+        local ini_patterns=(
+            "10\.0\.2\.2"
+            "172\.17\.0\.1"
+            "host\.docker\.internal"
+            "localhost.*5432"
+        )
+
+        local ini_fix_found=false
+        for pattern in "${ini_patterns[@]}"; do
+            local ini_check=$(docker run --rm "$backend_image" grep -c "$pattern" /app/alembic.ini 2>/dev/null || echo "0")
+            if [[ "$ini_check" =~ ^[0-9]+$ ]] && [ "$ini_check" -gt 0 ]; then
+                log "SUCCESS" "✅ Container image has alembic.ini Docker networking fix (pattern: $pattern)"
+                ini_fix_found=true
+                break
+            fi
+        done
+
+        if [ "$ini_fix_found" = false ]; then
+            log "WARN" "⚠️ Container image may be missing alembic.ini Docker networking fix"
+            log "DEBUG" "Checking alembic.ini content in container:"
+            if docker run --rm "$backend_image" test -f /app/alembic.ini 2>/dev/null; then
+                docker run --rm "$backend_image" head -20 /app/alembic.ini 2>/dev/null || true
+            else
+                log "DEBUG" "alembic.ini not found in container at /app/alembic.ini"
+                docker run --rm "$backend_image" find /app -name "alembic.ini" 2>/dev/null || true
+            fi
+        fi
+
+        # Additional verification: Check if the container can connect to the expected files
+        log "INFO" "Performing additional container file structure verification..."
+        local required_files=("/app/alembic/env.py" "/app/alembic.ini" "/app/main.py")
+        local missing_files=()
+
+        for file in "${required_files[@]}"; do
+            if ! docker run --rm "$backend_image" test -f "$file" 2>/dev/null; then
+                missing_files+=("$file")
+            fi
+        done
+
+        if [ ${#missing_files[@]} -gt 0 ]; then
+            log "WARN" "⚠️ Some expected files are missing in container: ${missing_files[*]}"
+            log "DEBUG" "Container file structure:"
+            docker run --rm "$backend_image" find /app -type f -name "*.py" | head -10 2>/dev/null || true
+        else
+            log "SUCCESS" "✅ All expected files present in container"
+        fi
+
+        log "SUCCESS" "Enhanced container Alembic fix verification completed"
     else
-        log "ERROR" "❌ No backend container image found"
+        log "ERROR" "❌ No backend container image found with any known naming pattern"
         log "ERROR" "Cannot verify Alembic fix without built container image"
 
-        # List available images for debugging
-        log "DEBUG" "Available Docker images:"
-        docker images | head -10 || true
+        # Enhanced debugging for image discovery
+        log "DEBUG" "Comprehensive image listing for debugging:"
+        log "DEBUG" "All images:"
+        docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}" | head -15 2>/dev/null || true
+
+        log "DEBUG" "Images with 'backend' in name:"
+        docker images --format "{{.Repository}}:{{.Tag}}" | grep -i backend | head -5 2>/dev/null || echo "None found"
+
+        log "DEBUG" "Images with 'pre-prod' in name:"
+        docker images --format "{{.Repository}}:{{.Tag}}" | grep -i pre-prod | head -5 2>/dev/null || echo "None found"
+
+        log "DEBUG" "Images with 'allemny' in name:"
+        docker images --format "{{.Repository}}:{{.Tag}}" | grep -i allemny | head -5 2>/dev/null || echo "None found"
+
         return 1
     fi
 }
@@ -4296,6 +4773,12 @@ test_bulletproof_database_solution() {
     log "INFO" "🧪 Testing bulletproof database connectivity solution..."
 
     cd "$INSTALL_DIR/Pre-Prod"
+
+    # Validate directory structure
+    if [ ! -f "docker-compose.yml" ]; then
+        log "ERROR" "❌ docker-compose.yml not found in $(pwd)"
+        return 1
+    fi
 
     local test_results=()
     local all_tests_passed=true
@@ -4547,6 +5030,25 @@ error_handler() {
             echo -e "  • Check port usage: ${BLUE}sudo netstat -tuln | grep -E ':(3001|8001|5432|6379|11434)'${NC}"
             echo -e "  • Kill conflicting processes: ${BLUE}sudo pkill -f 'port_number'${NC}"
             echo -e "  • Use different ports in .env file"
+
+        elif grep -q "No such image\|Failed to pull image\|manifest unknown" deployment.log 2>/dev/null; then
+            echo -e "${RED}🐳 DOCKER IMAGE BUILD ISSUE${NC}"
+            echo -e "  • Clean Docker cache: ${BLUE}docker system prune -af${NC}"
+            echo -e "  • Rebuild images: ${BLUE}cd Pre-Prod && docker-compose build --no-cache${NC}"
+            echo -e "  • Check Dockerfile syntax in Pre-Prod directory"
+
+        elif grep -q "git.*authentication\|git.*permission\|fatal.*repository" deployment.log 2>/dev/null; then
+            echo -e "${RED}📦 GIT REPOSITORY ISSUE${NC}"
+            echo -e "  • Check repository URL and access permissions"
+            echo -e "  • Verify SSH keys or credentials: ${BLUE}ssh -T git@github.com${NC}"
+            echo -e "  • Clone manually: ${BLUE}git clone https://github.com/your-repo.git${NC}"
+
+        elif grep -q "Alembic.*failed\|migration.*failed\|database.*migration" deployment.log 2>/dev/null; then
+            echo -e "${RED}🗃️ DATABASE MIGRATION ISSUE${NC}"
+            echo -e "  • Check DATABASE_URL environment variable"
+            echo -e "  • Reset migrations: ${BLUE}docker-compose exec backend alembic downgrade base${NC}"
+            echo -e "  • Recreate database: ${BLUE}sudo -u postgres dropdb allemny_find_v2 && sudo -u postgres createdb allemny_find_v2${NC}"
+            echo -e "  • Verify Alembic fix: ${BLUE}grep -q 'DATABASE_URL' backend/alembic/env.py${NC}"
         fi
     fi
 
@@ -4587,6 +5089,136 @@ error_handler() {
     echo -e "${RED}Most deployment failures are caused by system resource or connectivity issues.${NC}\n"
 
     exit $exit_code
+}
+
+# Function to set deployment timeouts for critical operations
+set_deployment_timeouts() {
+    log "INFO" "⏱️ Setting deployment timeouts for critical operations..."
+
+    # Set Docker daemon timeout
+    export DOCKER_CLIENT_TIMEOUT=300
+    export COMPOSE_HTTP_TIMEOUT=300
+
+    # Set git operation timeouts
+    git config --global http.postBuffer 1048576000
+    git config --global http.lowSpeedLimit 0
+    git config --global http.lowSpeedTime 999999
+
+    # Set container startup timeout
+    export COMPOSE_START_TIMEOUT=600
+
+    log "SUCCESS" "✅ Deployment timeouts configured"
+}
+
+# Pre-deployment validation function (runs before Docker operations)
+pre_deployment_validation() {
+    log "INFO" "🔍 Running pre-deployment validation checks..."
+
+    cd "$INSTALL_DIR/Pre-Prod"
+
+    local validation_failed=false
+
+    # Check 1: Validate all required files exist
+    log "INFO" "Validating required files..."
+    local required_files=(
+        "docker-compose.yml"
+        "Dockerfile.backend"
+        "Dockerfile.frontend"
+        "../backend/alembic/env.py"
+        "../backend/app/main.py"
+        "../frontend/package.json"
+    )
+
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            log "ERROR" "❌ Required file not found: $file"
+            validation_failed=true
+        else
+            log "DEBUG" "✅ Found required file: $file"
+        fi
+    done
+
+    # Check 2: Validate Alembic fix is present
+    log "INFO" "Validating Alembic DATABASE_URL fix..."
+    if grep -q "os.getenv.*DATABASE_URL" ../backend/alembic/env.py; then
+        log "SUCCESS" "✅ Alembic DATABASE_URL fix verified"
+    else
+        log "ERROR" "❌ Alembic DATABASE_URL fix not found in ../backend/alembic/env.py"
+        validation_failed=true
+    fi
+
+    # Check 3: Validate docker-compose.yml syntax
+    log "INFO" "Validating docker-compose.yml syntax..."
+    if docker-compose config >/dev/null 2>&1; then
+        log "SUCCESS" "✅ docker-compose.yml syntax is valid"
+    else
+        log "ERROR" "❌ docker-compose.yml has syntax errors:"
+        docker-compose config 2>&1 | while read line; do
+            log "ERROR" "  $line"
+        done
+        validation_failed=true
+    fi
+
+    # Check 4: Validate .env file exists or can be created
+    log "INFO" "Validating environment configuration..."
+    if [ ! -f ".env" ]; then
+        if [ -f ".env.template" ]; then
+            log "INFO" "Creating .env from template..."
+            cp .env.template .env
+            log "SUCCESS" "✅ Environment file created from template"
+        else
+            log "ERROR" "❌ No .env file and no .env.template found"
+            validation_failed=true
+        fi
+    else
+        log "SUCCESS" "✅ Environment file exists"
+    fi
+
+    # Check 5: Validate Docker daemon is accessible
+    log "INFO" "Validating Docker daemon accessibility..."
+    if docker info >/dev/null 2>&1; then
+        log "SUCCESS" "✅ Docker daemon is accessible"
+    else
+        log "ERROR" "❌ Docker daemon is not accessible"
+        validation_failed=true
+    fi
+
+    # Check 6: Validate backend path detection works
+    log "INFO" "Validating backend path detection..."
+    local backend_path
+    if backend_path=$(detect_backend_path); then
+        if validate_backend_path "$backend_path"; then
+            log "SUCCESS" "✅ Backend path validation successful: $backend_path"
+        else
+            log "ERROR" "❌ Backend path validation failed: $backend_path"
+            validation_failed=true
+        fi
+    else
+        log "ERROR" "❌ Backend path detection failed"
+        validation_failed=true
+    fi
+
+    # Check 7: Validate critical system dependencies
+    log "INFO" "Validating critical system dependencies..."
+    local required_commands=("docker" "docker-compose" "python3" "curl")
+    for cmd in "${required_commands[@]}"; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            log "DEBUG" "✅ Found command: $cmd"
+        else
+            log "ERROR" "❌ Required command not found: $cmd"
+            validation_failed=true
+        fi
+    done
+
+    # Final validation result
+    if [ "$validation_failed" = true ]; then
+        log "ERROR" "❌ Pre-deployment validation failed!"
+        log "ERROR" "Please fix the above issues before proceeding with deployment."
+        return 1
+    else
+        log "SUCCESS" "✅ All pre-deployment validation checks passed!"
+        return 0
+    fi
 }
 
 # Main deployment function
@@ -4632,6 +5264,12 @@ main() {
 
     # Ensure latest code is pulled from GitHub
     ensure_latest_code
+
+    # Pre-deployment validation (before building containers)
+    pre_deployment_validation
+
+    # Add timeout protection for critical operations
+    set_deployment_timeouts
 
     # Deploy application containers
     start_services
