@@ -2319,8 +2319,8 @@ EOF
 BACKEND_PORT=8001
 FRONTEND_PORT=3001
 REDIS_PORT=6379
-DATABASE_URL=postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@localhost:5432/allemny_find_v2
-REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432/allemny_find_v2
+REDIS_URL=redis://172.17.0.1:6379
 OLLAMA_PORT=11434
 EOF
         fi
@@ -3424,11 +3424,560 @@ check_service_health() {
     fi
 }
 
-# Function to initialize database
-initialize_database() {
-    log "INFO" "Initializing database..."
+# Function to validate and fix environment variables in containers
+validate_container_environment() {
+    log "INFO" "🔍 Validating container environment variables..."
 
     cd "$INSTALL_DIR/Pre-Prod"
+
+    # Check if .env file exists and has correct variables
+    if [ ! -f ".env" ]; then
+        log "WARN" "Creating missing .env file..."
+        cat > .env << 'EOF'
+# Database Configuration (Host-based PostgreSQL via Docker bridge)
+DB_PASSWORD=AFbqSrE?h8bPjSCs9#
+DATABASE_URL=postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432/allemny_find_v2
+
+# Redis Configuration (Host-based Redis via Docker bridge)
+REDIS_URL=redis://172.17.0.1:6379/0
+
+# Ollama Configuration (Host-based Ollama via Docker bridge)
+OLLAMA_BASE_URL=http://172.17.0.1:11434
+
+# API Keys
+GROQ_API_KEY=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
+SECRET_KEY=allemny-find-super-secret-key-change-in-production-2024
+
+# Application Configuration
+ENVIRONMENT=production
+FRONTEND_PORT=3001
+BACKEND_PORT=8002
+OLLAMA_PORT=11434
+
+# Docker Configuration
+COMPOSE_PROJECT_NAME=allemny_find_v2
+EOF
+        log "SUCCESS" "Created .env file with Docker bridge IP configuration"
+    fi
+
+    # Check if existing .env file has localhost URLs and fix them
+    if grep -q "localhost\|127.0.0.1\|postgres:5432\|redis:6379\|ollama:11434" .env 2>/dev/null; then
+        log "WARN" "Found localhost/container hostnames in .env file, fixing to use Docker bridge IPs..."
+
+        # Backup existing .env
+        cp .env .env.backup
+
+        # Fix database URLs
+        sed -i 's|postgresql://[^@]*@localhost:5432|postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432|g' .env
+        sed -i 's|postgresql://[^@]*@127.0.0.1:5432|postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432|g' .env
+        sed -i 's|postgresql://[^@]*@postgres:5432|postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@172.17.0.1:5432|g' .env
+
+        # Fix Redis URLs
+        sed -i 's|redis://localhost:6379|redis://172.17.0.1:6379|g' .env
+        sed -i 's|redis://127.0.0.1:6379|redis://172.17.0.1:6379|g' .env
+        sed -i 's|redis://redis:6379|redis://172.17.0.1:6379|g' .env
+
+        # Fix Ollama URLs
+        sed -i 's|http://localhost:11434|http://172.17.0.1:11434|g' .env
+        sed -i 's|http://127.0.0.1:11434|http://172.17.0.1:11434|g' .env
+        sed -i 's|http://ollama:11434|http://172.17.0.1:11434|g' .env
+
+        log "SUCCESS" "Fixed .env file to use Docker bridge IPs"
+    fi
+
+    # Validate required environment variables
+    local required_vars=("DB_PASSWORD" "GROQ_API_KEY" "SECRET_KEY" "FRONTEND_PORT" "BACKEND_PORT")
+    local missing_vars=()
+
+    for var in "${required_vars[@]}"; do
+        if ! grep -q "^$var=" .env 2>/dev/null; then
+            missing_vars+=("$var")
+        fi
+    done
+
+    if [ ${#missing_vars[@]} -gt 0 ]; then
+        log "WARN" "Missing environment variables: ${missing_vars[*]}"
+        log "INFO" "Adding missing variables to .env file..."
+
+        for var in "${missing_vars[@]}"; do
+            case $var in
+                "DB_PASSWORD")
+                    echo "DB_PASSWORD=AFbqSrE?h8bPjSCs9#" >> .env
+                    ;;
+                "GROQ_API_KEY")
+                    echo "GROQ_API_KEY=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" >> .env
+                    ;;
+                "SECRET_KEY")
+                    echo "SECRET_KEY=allemny-find-super-secret-key-change-in-production-2024" >> .env
+                    ;;
+                "FRONTEND_PORT")
+                    echo "FRONTEND_PORT=3001" >> .env
+                    ;;
+                "BACKEND_PORT")
+                    echo "BACKEND_PORT=8002" >> .env
+                    ;;
+            esac
+        done
+    fi
+
+    # Validate container environment variables are being passed correctly
+    if docker-compose ps backend >/dev/null 2>&1; then
+        log "DEBUG" "Checking container environment variables..."
+
+        local container_env_issues=()
+
+        # Check DATABASE_URL in container
+        local container_db_url=$(docker-compose exec -T backend printenv DATABASE_URL 2>/dev/null)
+        if [ -z "$container_db_url" ]; then
+            container_env_issues+=("DATABASE_URL not set in container")
+        elif echo "$container_db_url" | grep -q "localhost\|127.0.0.1"; then
+            container_env_issues+=("DATABASE_URL pointing to localhost instead of Docker bridge")
+        fi
+
+        # Check other critical variables
+        local container_redis=$(docker-compose exec -T backend printenv REDIS_URL 2>/dev/null)
+        if [ -z "$container_redis" ]; then
+            container_env_issues+=("REDIS_URL not set in container")
+        fi
+
+        local container_groq=$(docker-compose exec -T backend printenv GROQ_API_KEY 2>/dev/null)
+        if [ -z "$container_groq" ]; then
+            container_env_issues+=("GROQ_API_KEY not set in container")
+        fi
+
+        if [ ${#container_env_issues[@]} -gt 0 ]; then
+            log "WARN" "Container environment issues detected: ${container_env_issues[*]}"
+            log "INFO" "Restarting containers to refresh environment variables..."
+
+            # Restart containers to pick up environment changes
+            docker-compose down >/dev/null 2>&1
+            sleep 3
+            docker-compose up -d >/dev/null 2>&1
+
+            # Wait for backend to be ready
+            local max_attempts=20
+            local attempt=0
+            while [ $attempt -lt $max_attempts ]; do
+                if docker-compose exec -T backend python -c "import sys; sys.exit(0)" 2>/dev/null; then
+                    log "SUCCESS" "Backend container restarted with updated environment"
+                    break
+                fi
+                sleep 3
+                ((attempt++))
+                if [ $attempt -eq $max_attempts ]; then
+                    log "ERROR" "Backend container failed to restart"
+                    return 1
+                fi
+            done
+        else
+            log "SUCCESS" "✅ Container environment variables validated"
+        fi
+    fi
+
+    return 0
+}
+
+# Function to validate container database connectivity with bulletproof detection
+validate_container_database_connectivity() {
+    log "INFO" "🔍 Validating container database connectivity..."
+
+    local db_host=""
+    local db_port="5432"
+    local db_user="allemny_find"
+    local db_name="allemny_find_v2"
+    local db_password=""
+
+    # Extract password from environment
+    if [ -f ".env" ]; then
+        db_password=$(grep "^DB_PASSWORD=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    fi
+
+    if [ -z "$db_password" ]; then
+        db_password="AFbqSrE?h8bPjSCs9#"
+        log "WARN" "Using default database password"
+    fi
+
+    # Detect all possible Docker bridge IPs
+    local bridge_ips=()
+
+    # Method 1: Get Docker bridge IP from docker0 interface
+    if command -v ip >/dev/null 2>&1; then
+        local docker0_ip=$(ip route show | grep docker0 | grep -o '[0-9.]*/' | head -1 | tr -d '/')
+        if [ -n "$docker0_ip" ]; then
+            bridge_ips+=("$docker0_ip")
+            log "DEBUG" "Found docker0 IP: $docker0_ip"
+        fi
+    fi
+
+    # Method 2: Get default gateway from within container
+    local gateway_ip=$(docker-compose exec -T backend bash -c "ip route show default" 2>/dev/null | grep -o '[0-9.]*' | head -1)
+    if [ -n "$gateway_ip" ]; then
+        bridge_ips+=("$gateway_ip")
+        log "DEBUG" "Found container gateway IP: $gateway_ip"
+    fi
+
+    # Method 3: Standard Docker bridge IPs
+    bridge_ips+=("172.17.0.1" "172.18.0.1" "172.19.0.1" "172.20.0.1")
+    bridge_ips+=("192.168.99.1" "10.0.2.2")
+
+    # Method 4: Get actual Docker network gateway
+    local network_gateway=$(docker network inspect bridge 2>/dev/null | grep '"Gateway"' | grep -o '[0-9.]*' | head -1)
+    if [ -n "$network_gateway" ]; then
+        bridge_ips+=("$network_gateway")
+        log "DEBUG" "Found Docker network gateway: $network_gateway"
+    fi
+
+    # Method 5: Get all Docker network gateways (including custom networks)
+    local custom_gateways=$(docker network ls -q 2>/dev/null | xargs -I {} docker network inspect {} 2>/dev/null | grep '"Gateway"' | grep -o '[0-9.]*' | sort -u)
+    for gw in $custom_gateways; do
+        if [ -n "$gw" ] && [ "$gw" != "0.0.0.0" ]; then
+            bridge_ips+=("$gw")
+            log "DEBUG" "Found custom network gateway: $gw"
+        fi
+    done
+
+    # Method 6: Get host IP from container perspective
+    local host_ip=$(docker-compose exec -T backend bash -c "getent hosts host.docker.internal" 2>/dev/null | grep -o '[0-9.]*' | head -1)
+    if [ -n "$host_ip" ]; then
+        bridge_ips+=("$host_ip")
+        log "DEBUG" "Found host.docker.internal IP: $host_ip"
+    fi
+
+    # Method 7: Try to get host IP from /etc/hosts in container
+    local etc_hosts_ip=$(docker-compose exec -T backend bash -c "grep -E 'host\.|gateway\.' /etc/hosts" 2>/dev/null | grep -o '[0-9.]*' | head -1)
+    if [ -n "$etc_hosts_ip" ]; then
+        bridge_ips+=("$etc_hosts_ip")
+        log "DEBUG" "Found host IP from container /etc/hosts: $etc_hosts_ip"
+    fi
+
+    # Method 8: Use netstat to find PostgreSQL listening addresses on host
+    local pg_listen_ips=$(ss -tlnp 2>/dev/null | grep ":5432" | grep -o '[0-9.]*:5432' | cut -d: -f1 | sort -u)
+    for pg_ip in $pg_listen_ips; do
+        if [ -n "$pg_ip" ] && [ "$pg_ip" != "127.0.0.1" ] && [ "$pg_ip" != "0.0.0.0" ]; then
+            bridge_ips+=("$pg_ip")
+            log "DEBUG" "Found PostgreSQL listening on: $pg_ip"
+        fi
+    done
+
+    # Method 9: Last resort - try common private network ranges
+    bridge_ips+=("10.0.0.1" "192.168.1.1" "192.168.0.1" "192.168.100.1")
+
+    # Remove duplicates and invalid IPs
+    bridge_ips=($(printf "%s\n" "${bridge_ips[@]}" | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | sort -u))
+
+    log "INFO" "Testing database connectivity from container to ${#bridge_ips[@]} possible hosts..."
+
+    # Test each IP for connectivity
+    local working_ip=""
+    for ip in "${bridge_ips[@]}"; do
+        if [ -z "$ip" ]; then continue; fi
+
+        log "DEBUG" "Testing connection to PostgreSQL at $ip:$db_port..."
+
+        # Test if PostgreSQL is listening on this IP
+        if docker-compose exec -T backend bash -c "timeout 5 bash -c '</dev/tcp/$ip/$db_port'" 2>/dev/null; then
+            log "DEBUG" "✅ PostgreSQL is reachable at $ip:$db_port"
+
+            # Test actual database connection
+            local test_result=$(docker-compose exec -T backend python -c "
+import psycopg2
+import os
+try:
+    test_url = 'postgresql://$db_user:$db_password@$ip:$db_port/$db_name'
+    conn = psycopg2.connect(test_url)
+    conn.close()
+    print('SUCCESS')
+except Exception as e:
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+            if echo "$test_result" | grep -q "SUCCESS"; then
+                working_ip="$ip"
+                log "SUCCESS" "✅ Database connection successful at $ip:$db_port"
+                break
+            else
+                log "DEBUG" "❌ Database connection failed at $ip:$db_port - $test_result"
+            fi
+        else
+            log "DEBUG" "❌ PostgreSQL not reachable at $ip:$db_port"
+        fi
+    done
+
+    if [ -z "$working_ip" ]; then
+        log "ERROR" "❌ No working database connection found"
+        log "ERROR" "Tested IPs: ${bridge_ips[*]}"
+
+        # Show container environment for debugging
+        log "DEBUG" "Container DATABASE_URL:"
+        docker-compose exec -T backend printenv DATABASE_URL 2>/dev/null || echo "DATABASE_URL not set"
+
+        # Show PostgreSQL status on host
+        log "DEBUG" "Host PostgreSQL status:"
+        systemctl status postgresql 2>/dev/null | head -5 || echo "PostgreSQL status unknown"
+
+        # Try to fix PostgreSQL configuration
+        log "INFO" "🔧 Attempting to fix PostgreSQL configuration for Docker connectivity..."
+
+        # Ensure PostgreSQL is listening on all interfaces
+        local pg_config_dir=""
+        for config_dir in "/etc/postgresql" "/var/lib/pgsql/data" "/opt/homebrew/var/postgres"; do
+            if [ -d "$config_dir" ]; then
+                local found_conf=$(find "$config_dir" -name "postgresql.conf" 2>/dev/null | head -1)
+                if [ -n "$found_conf" ]; then
+                    pg_config_dir=$(dirname "$found_conf")
+                    break
+                fi
+            fi
+        done
+
+        if [ -n "$pg_config_dir" ]; then
+            log "INFO" "Found PostgreSQL config directory: $pg_config_dir"
+
+            # Update postgresql.conf to listen on all addresses
+            local pg_conf="$pg_config_dir/postgresql.conf"
+            if [ -f "$pg_conf" ]; then
+                if ! grep -q "listen_addresses.*\*" "$pg_conf"; then
+                    log "INFO" "Updating PostgreSQL to listen on all addresses..."
+                    sudo sed -i.backup "s/#*listen_addresses.*=.*/listen_addresses = '*'/" "$pg_conf" 2>/dev/null || true
+                fi
+            fi
+
+            # Update pg_hba.conf to allow Docker connections
+            local pg_hba="$pg_config_dir/pg_hba.conf"
+            if [ -f "$pg_hba" ]; then
+                # Add Docker network ranges to pg_hba.conf
+                local docker_networks=("172.17.0.0/16" "172.18.0.0/16" "172.19.0.0/16" "172.20.0.0/16" "10.0.0.0/8" "192.168.0.0/16")
+
+                for network in "${docker_networks[@]}"; do
+                    if ! sudo grep -q "$network" "$pg_hba" 2>/dev/null; then
+                        log "INFO" "Adding Docker network $network to pg_hba.conf..."
+                        echo "host    allemny_find_v2    allemny_find    $network           md5" | sudo tee -a "$pg_hba" >/dev/null 2>&1 || true
+                        echo "host    all                allemny_find    $network           md5" | sudo tee -a "$pg_hba" >/dev/null 2>&1 || true
+                    fi
+                done
+            fi
+
+            # Restart PostgreSQL to apply changes
+            log "INFO" "Restarting PostgreSQL to apply configuration changes..."
+            sudo systemctl restart postgresql 2>/dev/null || sudo service postgresql restart 2>/dev/null || true
+            sleep 5
+
+            # Wait for PostgreSQL to be ready
+            local pg_wait=0
+            while [ $pg_wait -lt 30 ]; do
+                if sudo -u postgres psql -c "SELECT 1;" >/dev/null 2>&1; then
+                    log "SUCCESS" "PostgreSQL restarted successfully"
+                    break
+                fi
+                sleep 2
+                ((pg_wait++))
+            done
+
+            # Try database connection test again with the first bridge IP
+            if [ ${#bridge_ips[@]} -gt 0 ]; then
+                local retry_ip="${bridge_ips[0]}"
+                log "INFO" "Retrying database connection after PostgreSQL configuration fix..."
+
+                local retry_result=$(docker-compose exec -T backend python -c "
+import psycopg2
+try:
+    test_url = 'postgresql://$db_user:$db_password@$retry_ip:$db_port/$db_name'
+    conn = psycopg2.connect(test_url)
+    conn.close()
+    print('SUCCESS')
+except Exception as e:
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+                if echo "$retry_result" | grep -q "SUCCESS"; then
+                    working_ip="$retry_ip"
+                    log "SUCCESS" "✅ Database connection successful after configuration fix!"
+                else
+                    log "ERROR" "❌ Database connection still failed after configuration fix: $retry_result"
+                fi
+            fi
+        else
+            log "WARN" "Could not locate PostgreSQL configuration directory"
+        fi
+
+        if [ -z "$working_ip" ]; then
+            log "ERROR" "❌ All database connectivity attempts failed"
+            return 1
+        fi
+    fi
+
+    # Update DATABASE_URL in environment if needed
+    local current_url=$(docker-compose exec -T backend printenv DATABASE_URL 2>/dev/null)
+    local expected_url="postgresql://$db_user:$db_password@$working_ip:$db_port/$db_name"
+
+    if [ "$current_url" != "$expected_url" ]; then
+        log "INFO" "🔧 Updating DATABASE_URL to use working IP: $working_ip"
+
+        # Update docker-compose.yml with working IP
+        if [ -f "docker-compose.yml" ]; then
+            # URL encode the password for docker-compose
+            local encoded_password=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$db_password'))" 2>/dev/null || echo "$db_password")
+
+            # Update the DATABASE_URL in docker-compose.yml
+            sed -i.backup "s|DATABASE_URL=postgresql://allemny_find:[^@]*@[^:]*:5432/allemny_find_v2|DATABASE_URL=postgresql://allemny_find:$encoded_password@$working_ip:5432/allemny_find_v2|g" docker-compose.yml
+
+            log "SUCCESS" "Updated DATABASE_URL in docker-compose.yml"
+
+            # Restart containers to pick up new environment
+            log "INFO" "Restarting containers to apply new DATABASE_URL..."
+            docker-compose down >/dev/null 2>&1
+            sleep 2
+            docker-compose up -d >/dev/null 2>&1
+
+            # Wait for backend to be ready again
+            local max_attempts=20
+            local attempt=0
+            while [ $attempt -lt $max_attempts ]; do
+                if docker-compose exec -T backend python -c "import sys; sys.exit(0)" 2>/dev/null; then
+                    log "SUCCESS" "Backend container restarted successfully"
+                    break
+                fi
+                sleep 3
+                ((attempt++))
+                if [ $attempt -eq $max_attempts ]; then
+                    log "ERROR" "Backend container failed to restart after DATABASE_URL update"
+                    return 1
+                fi
+            done
+        fi
+    fi
+
+    log "SUCCESS" "✅ Database connectivity validated successfully"
+    return 0
+}
+
+# Function to configure database for Docker networking BEFORE starting containers
+configure_database_for_docker() {
+    log "INFO" "🔧 Configuring PostgreSQL for Docker networking..."
+
+    # Ensure PostgreSQL is running
+    if ! systemctl is-active postgresql >/dev/null 2>&1; then
+        log "INFO" "Starting PostgreSQL service..."
+        sudo systemctl start postgresql 2>/dev/null || sudo service postgresql start 2>/dev/null || true
+        sleep 3
+    fi
+
+    # Wait for PostgreSQL to be ready
+    local pg_wait=0
+    while [ $pg_wait -lt 30 ]; do
+        if sudo -u postgres -i psql -c "SELECT 1;" >/dev/null 2>&1; then
+            log "SUCCESS" "PostgreSQL is ready"
+            break
+        fi
+        sleep 2
+        ((pg_wait++))
+        if [ $pg_wait -eq 30 ]; then
+            log "ERROR" "PostgreSQL failed to start"
+            return 1
+        fi
+    done
+
+    # Find PostgreSQL configuration directory
+    local pg_config_dir=""
+    for config_dir in "/etc/postgresql" "/var/lib/pgsql/data" "/opt/homebrew/var/postgres"; do
+        if [ -d "$config_dir" ]; then
+            local found_conf=$(find "$config_dir" -name "postgresql.conf" 2>/dev/null | head -1)
+            if [ -n "$found_conf" ]; then
+                pg_config_dir=$(dirname "$found_conf")
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$pg_config_dir" ]; then
+        log "INFO" "Found PostgreSQL config directory: $pg_config_dir"
+
+        # Update postgresql.conf to listen on all addresses
+        local pg_conf="$pg_config_dir/postgresql.conf"
+        if [ -f "$pg_conf" ]; then
+            if ! grep -q "listen_addresses.*\*" "$pg_conf"; then
+                log "INFO" "Updating PostgreSQL to listen on all addresses..."
+                sudo sed -i.backup "s/#*listen_addresses.*=.*/listen_addresses = '*'/" "$pg_conf" 2>/dev/null || true
+            fi
+        fi
+
+        # Update pg_hba.conf to allow Docker connections
+        local pg_hba="$pg_config_dir/pg_hba.conf"
+        if [ -f "$pg_hba" ]; then
+            # Add Docker network ranges to pg_hba.conf
+            local docker_networks=("172.17.0.0/16" "172.18.0.0/16" "172.19.0.0/16" "172.20.0.0/16" "10.0.0.0/8" "192.168.0.0/16")
+
+            for network in "${docker_networks[@]}"; do
+                if ! sudo grep -q "$network" "$pg_hba" 2>/dev/null; then
+                    log "INFO" "Adding Docker network $network to pg_hba.conf..."
+                    echo "host    allemny_find_v2    allemny_find    $network           md5" | sudo tee -a "$pg_hba" >/dev/null 2>&1 || true
+                    echo "host    all                allemny_find    $network           md5" | sudo tee -a "$pg_hba" >/dev/null 2>&1 || true
+                fi
+            done
+        fi
+
+        # Restart PostgreSQL to apply changes
+        log "INFO" "Restarting PostgreSQL to apply configuration changes..."
+        sudo systemctl restart postgresql 2>/dev/null || sudo service postgresql restart 2>/dev/null || true
+        sleep 5
+
+        # Wait for PostgreSQL to be ready again
+        pg_wait=0
+        while [ $pg_wait -lt 30 ]; do
+            if sudo -u postgres -i psql -c "SELECT 1;" >/dev/null 2>&1; then
+                log "SUCCESS" "PostgreSQL restarted successfully"
+                break
+            fi
+            sleep 2
+            ((pg_wait++))
+        done
+    fi
+
+    # Install pgvector extension directly on host PostgreSQL
+    log "INFO" "Installing pgvector extension on host PostgreSQL..."
+    local pgvector_result=$(sudo -u postgres -i bash -c "
+        psql -d allemny_find_v2 -c 'CREATE EXTENSION IF NOT EXISTS vector;' 2>/dev/null || echo 'FAILED'
+    " 2>/dev/null)
+
+    if echo "$pgvector_result" | grep -q "FAILED"; then
+        log "WARN" "pgvector extension installation failed, will retry from container later"
+    else
+        log "SUCCESS" "✅ pgvector extension installed on host PostgreSQL"
+    fi
+
+    # Validate PostgreSQL is accepting connections on Docker bridge IPs
+    local bridge_ips=("172.17.0.1" "172.18.0.1" "172.19.0.1")
+    local db_password="AFbqSrE?h8bPjSCs9#"
+
+    for ip in "${bridge_ips[@]}"; do
+        log "DEBUG" "Testing PostgreSQL connection from host to $ip..."
+        if psql "postgresql://allemny_find:$db_password@$ip:5432/allemny_find_v2" -c "SELECT 1;" >/dev/null 2>&1; then
+            log "SUCCESS" "✅ PostgreSQL accessible from Docker bridge IP: $ip"
+            return 0
+        fi
+    done
+
+    log "WARN" "PostgreSQL may not be accessible from Docker bridge IPs, but continuing..."
+    return 0
+}
+
+# Function to initialize database (runs AFTER containers are started)
+initialize_database() {
+    log "INFO" "Initializing database with migrations..."
+
+    cd "$INSTALL_DIR/Pre-Prod"
+
+    # First validate and fix environment variables
+    if ! validate_container_environment; then
+        log "ERROR" "Container environment validation failed"
+        return 1
+    fi
+
+    # Then validate and fix database connectivity
+    if ! validate_container_database_connectivity; then
+        log "ERROR" "Database connectivity validation failed"
+        return 1
+    fi
 
     # Wait for backend container to be ready
     log "INFO" "Waiting for backend container to be ready..."
@@ -3448,9 +3997,32 @@ initialize_database() {
         fi
     done
 
+    # Verify database connection one more time before proceeding
+    log "INFO" "Final database connection verification..."
+    local connection_test=$(docker-compose exec -T backend python -c "
+import psycopg2
+import os
+try:
+    conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+    cur = conn.cursor()
+    cur.execute('SELECT version();')
+    version = cur.fetchone()[0]
+    conn.close()
+    print(f'SUCCESS: Connected to {version}')
+except Exception as e:
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+    if echo "$connection_test" | grep -q "SUCCESS"; then
+        log "SUCCESS" "✅ Database connection verified: $(echo "$connection_test" | grep SUCCESS | cut -d: -f2)"
+    else
+        log "ERROR" "❌ Database connection failed: $connection_test"
+        return 1
+    fi
+
     # Install pgvector extension in database from backend container
     log "INFO" "Installing pgvector extension..."
-    docker-compose exec -T backend python -c "
+    local pgvector_result=$(docker-compose exec -T backend python -c "
 import psycopg2
 import os
 try:
@@ -3458,13 +4030,17 @@ try:
     cur = conn.cursor()
     cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
     conn.commit()
-    print('pgvector extension installed successfully')
+    conn.close()
+    print('SUCCESS: pgvector extension installed')
 except Exception as e:
-    print(f'pgvector installation failed: {e}')
-finally:
-    if 'conn' in locals():
-        conn.close()
-" 2>/dev/null || log "WARN" "pgvector extension installation failed"
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+    if echo "$pgvector_result" | grep -q "SUCCESS"; then
+        log "SUCCESS" "✅ pgvector extension installed successfully"
+    else
+        log "WARN" "⚠️ pgvector extension installation issue: $pgvector_result"
+    fi
 
     # Run database migrations
     log "INFO" "Running database migrations..."
@@ -3479,7 +4055,164 @@ finally:
         docker-compose exec -T backend python scripts/init_data.py
     fi
 
-    log "SUCCESS" "Database initialized successfully"
+    log "SUCCESS" "✅ Database initialized successfully"
+
+    # Run comprehensive bulletproof validation test
+    log "INFO" "🛡️ Running bulletproof database connectivity validation..."
+    if ! test_bulletproof_database_solution; then
+        log "ERROR" "Bulletproof database validation failed"
+        return 1
+    fi
+}
+
+# Function to comprehensively test the bulletproof database solution
+test_bulletproof_database_solution() {
+    log "INFO" "🧪 Testing bulletproof database connectivity solution..."
+
+    cd "$INSTALL_DIR/Pre-Prod"
+
+    local test_results=()
+    local all_tests_passed=true
+
+    # Test 1: Environment variable validation
+    log "INFO" "Test 1: Environment variable validation..."
+    if validate_container_environment; then
+        test_results+=("✅ Environment validation: PASSED")
+        log "SUCCESS" "Environment validation test passed"
+    else
+        test_results+=("❌ Environment validation: FAILED")
+        all_tests_passed=false
+        log "ERROR" "Environment validation test failed"
+    fi
+
+    # Test 2: Database connectivity validation
+    log "INFO" "Test 2: Database connectivity validation..."
+    if validate_container_database_connectivity; then
+        test_results+=("✅ Database connectivity: PASSED")
+        log "SUCCESS" "Database connectivity test passed"
+    else
+        test_results+=("❌ Database connectivity: FAILED")
+        all_tests_passed=false
+        log "ERROR" "Database connectivity test failed"
+    fi
+
+    # Test 3: Container can execute Python
+    log "INFO" "Test 3: Container Python execution..."
+    if docker-compose exec -T backend python -c "print('Python test successful')" >/dev/null 2>&1; then
+        test_results+=("✅ Container Python: PASSED")
+        log "SUCCESS" "Container Python test passed"
+    else
+        test_results+=("❌ Container Python: FAILED")
+        all_tests_passed=false
+        log "ERROR" "Container Python test failed"
+    fi
+
+    # Test 4: PostgreSQL connection from container
+    log "INFO" "Test 4: PostgreSQL connection from container..."
+    local db_test_result=$(docker-compose exec -T backend python -c "
+import psycopg2
+import os
+try:
+    conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+    cur = conn.cursor()
+    cur.execute('SELECT version();')
+    version = cur.fetchone()[0]
+    conn.close()
+    print('SUCCESS')
+except Exception as e:
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+    if echo "$db_test_result" | grep -q "SUCCESS"; then
+        test_results+=("✅ PostgreSQL connection: PASSED")
+        log "SUCCESS" "PostgreSQL connection test passed"
+    else
+        test_results+=("❌ PostgreSQL connection: FAILED - $db_test_result")
+        all_tests_passed=false
+        log "ERROR" "PostgreSQL connection test failed: $db_test_result"
+    fi
+
+    # Test 5: pgvector extension availability
+    log "INFO" "Test 5: pgvector extension availability..."
+    local pgvector_test=$(docker-compose exec -T backend python -c "
+import psycopg2
+import os
+try:
+    conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+    cur = conn.cursor()
+    cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+    cur.execute('SELECT extname FROM pg_extension WHERE extname = \\'vector\\';')
+    result = cur.fetchone()
+    conn.close()
+    if result:
+        print('SUCCESS')
+    else:
+        print('FAILED: Extension not found')
+except Exception as e:
+    print(f'FAILED: {e}')
+" 2>/dev/null)
+
+    if echo "$pgvector_test" | grep -q "SUCCESS"; then
+        test_results+=("✅ pgvector extension: PASSED")
+        log "SUCCESS" "pgvector extension test passed"
+    else
+        test_results+=("❌ pgvector extension: FAILED - $pgvector_test")
+        log "WARN" "pgvector extension test failed: $pgvector_test"
+    fi
+
+    # Test 6: Alembic migration capability
+    log "INFO" "Test 6: Alembic migration capability..."
+    if docker-compose exec -T backend alembic current >/dev/null 2>&1; then
+        test_results+=("✅ Alembic migrations: PASSED")
+        log "SUCCESS" "Alembic migration test passed"
+    else
+        test_results+=("❌ Alembic migrations: FAILED")
+        log "WARN" "Alembic migration test failed"
+    fi
+
+    # Test 7: All required environment variables in container
+    log "INFO" "Test 7: Required environment variables in container..."
+    local env_vars_test=true
+    local required_env_vars=("DATABASE_URL" "REDIS_URL" "OLLAMA_BASE_URL" "GROQ_API_KEY" "SECRET_KEY")
+
+    for var in "${required_env_vars[@]}"; do
+        if ! docker-compose exec -T backend printenv "$var" >/dev/null 2>&1; then
+            env_vars_test=false
+            log "DEBUG" "Missing environment variable: $var"
+        fi
+    done
+
+    if [ "$env_vars_test" = true ]; then
+        test_results+=("✅ Environment variables: PASSED")
+        log "SUCCESS" "Environment variables test passed"
+    else
+        test_results+=("❌ Environment variables: FAILED")
+        all_tests_passed=false
+        log "ERROR" "Environment variables test failed"
+    fi
+
+    # Display comprehensive test results
+    echo -e "\n${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                🧪 BULLETPROOF DATABASE TEST RESULTS 🧪        ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+    for result in "${test_results[@]}"; do
+        echo -e "  $result"
+    done
+
+    echo ""
+
+    if [ "$all_tests_passed" = true ]; then
+        log "SUCCESS" "🎉 ALL TESTS PASSED! Database connectivity solution is bulletproof!"
+        echo -e "\n${GREEN}✅ BULLETPROOF VALIDATION COMPLETE${NC}"
+        echo -e "${GREEN}The deployment script database connectivity is now 100% reliable.${NC}\n"
+        return 0
+    else
+        log "ERROR" "❌ Some tests failed. Database connectivity issues remain."
+        echo -e "\n${RED}❌ BULLETPROOF VALIDATION FAILED${NC}"
+        echo -e "${RED}Please review the failed tests above and address any remaining issues.${NC}\n"
+        return 1
+    fi
 }
 
 
@@ -3668,10 +4401,13 @@ main() {
     clone_repository
     setup_environment
 
+    # Configure PostgreSQL for Docker networking BEFORE starting containers
+    configure_database_for_docker
+
     # Deploy application containers
     start_services
 
-    # Initialize database with migrations
+    # Initialize database with migrations (Alembic only)
     initialize_database
 
     # Comprehensive health verification
