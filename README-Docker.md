@@ -20,7 +20,6 @@ chmod +x deploy.sh && ./deploy.sh
 - **Frontend**: React/Vite application (Port 3001)
 - **Backend**: FastAPI application (Port 8000)
 - **Database**: PostgreSQL 15 with pgvector extension (Port 5432)
-- **Cache**: Redis for session management (Port 6379)
 
 ### Ports
 - Frontend: http://localhost:3001
@@ -28,7 +27,6 @@ chmod +x deploy.sh && ./deploy.sh
 - API Documentation: http://localhost:8000/docs
 - Health Check: http://localhost:8000/health
 - Database: localhost:5432
-- Redis: localhost:6379
 
 ### Default Admin Credentials
 - Username: `admin`

@@ -23,20 +23,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis (for Celery)
-  redis:
-    image: redis:7-alpine
-    container_name: allemny_redis
-    ports:
-      - "6379:6379"
-    networks:
-      - allemny_network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # FastAPI Backend
   backend:
     build:
@@ -50,11 +36,6 @@ services:
       DB_USER: allemny_find
       DB_PASSWORD: AFbqSrE?h8bPjSCs9#
       DATABASE_URL: postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@postgres:5432/allemny_find_v2
-
-      # Redis Configuration
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_URL: redis://redis:6379/0
 
       # Application Configuration
       APP_NAME: "Allemny Find V2"
@@ -98,8 +79,6 @@ services:
       - allemny_network
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
