@@ -65,10 +65,11 @@ class SecurityManager:
         except Exception:
             return False
 
-    def get_password_hash(self, password: str) -> str:
-        """Generate password hash with validation"""
-        # Validate password strength before hashing
-        self.validate_password_strength(password)
+    def get_password_hash(self, password: str, skip_validation: bool = False) -> str:
+        """Generate password hash with optional validation"""
+        # Validate password strength before hashing (unless skipped for admin setup)
+        if not skip_validation:
+            self.validate_password_strength(password)
         return self.pwd_context.hash(password)
 
     def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None) -> str:

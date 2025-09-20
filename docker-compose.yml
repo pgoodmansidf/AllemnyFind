@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: allemny_postgres
+    environment:
+      POSTGRES_DB: allemny_find_v2
+      POSTGRES_USER: allemny_find
+      POSTGRES_PASSWORD: AFbqSrE?h8bPjSCs9#
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - allemny_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allemny_find -d allemny_find_v2"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for Celery)
+  redis:
+    image: redis:7-alpine
+    container_name: allemny_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - allemny_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: allemny_backend
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_NAME: allemny_find_v2
+      DB_USER: allemny_find
+      DB_PASSWORD: AFbqSrE?h8bPjSCs9#
+      DATABASE_URL: postgresql://allemny_find:AFbqSrE%3Fh8bPjSCs9%23@postgres:5432/allemny_find_v2
+
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/0
+
+      # Application Configuration
+      APP_NAME: "Allemny Find V2"
+      ENVIRONMENT: development
+      DEBUG: true
+
+      # Security Configuration
+      SECRET_KEY: allemny-find-super-secret-key-change-in-production-2024
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+
+      # API Configuration
+      GROQ_API_KEY: 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
+      GROQ_MODEL: llama-3.1-70b-versatile
+
+      # Ollama Configuration (if running externally)
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: nomic-embed-text
+
+      # File Processing Configuration
+      MAX_FILE_SIZE: 104857600
+      CHUNK_SIZE: 1000
+      CHUNK_OVERLAP: 200
+      DOCUMENT_STORAGE_PATH: ./document_storage
+
+      # Performance Configuration
+      MAX_CONCURRENT_JOBS: 10
+      BATCH_SIZE: 100
+
+      # Monitoring Configuration
+      HEALTH_CHECK_INTERVAL: 30
+      LOG_LEVEL: INFO
+      LOG_RETENTION_DAYS: 30
+
+    volumes:
+      - ./backend/document_storage:/app/document_storage
+      - ./backend/logs:/app/logs
+    ports:
+      - "8000:8000"
+    networks:
+      - allemny_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: allemny_frontend
+    ports:
+      - "3001:3001"
+    networks:
+      - allemny_network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  allemny_network:
+    driver: bridge

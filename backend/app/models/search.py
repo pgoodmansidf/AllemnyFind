@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Float 
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Float, Index
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -27,8 +27,13 @@ class SearchQuery(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     
-    # Relationship
-    user = relationship("User", back_populates="search_queries")
+    # Optimized relationship
+    user = relationship(
+        "User",
+        back_populates="search_queries",
+        lazy="select",  # Explicit lazy loading
+        innerjoin=True  # User always exists for queries
+    )
     
     def __repr__(self):
         return f"<SearchQuery(query='{self.query_text[:50]}...', user_id={self.user_id})>"
@@ -49,8 +54,13 @@ class SearchSession(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_activity = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationship
-    user = relationship("User", back_populates="search_sessions")
+    # Optimized relationship
+    user = relationship(
+        "User",
+        back_populates="search_sessions",
+        lazy="select",
+        innerjoin=True
+    )
     
     def __repr__(self):
         return f"<SearchSession(id='{self.id}', user_id={self.user_id})>"
@@ -60,7 +70,12 @@ class SearchLog(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    user = relationship("User", backref="user_search_logs")  # Changed from "search_logs" to "user_search_logs"
+    user = relationship(
+        "User",
+        backref="user_search_logs",
+        lazy="select",
+        innerjoin=True
+    )  # Optimized relationship
     
     query = Column(Text, nullable=False)
     search_type = Column(String(50), default="hybrid")  # hybrid, semantic, keyword
@@ -77,3 +92,22 @@ class SearchLog(Base):
     
     def __repr__(self):
         return f"<SearchLog(query='{self.query[:50]}...', results={self.results_count})>"
+
+# Add indexes for better query performance
+SearchQuery.__table_args__ = (
+    Index('idx_search_queries_user_created', 'user_id', 'created_at'),
+    Index('idx_search_queries_success_created', 'success', 'created_at'),
+    Index('idx_search_queries_search_type', 'search_type'),
+    Index('idx_search_queries_processing_time', 'processing_time'),
+)
+
+SearchSession.__table_args__ = (
+    Index('idx_search_sessions_user_activity', 'user_id', 'last_activity'),
+    Index('idx_search_sessions_created', 'created_at'),
+)
+
+SearchLog.__table_args__ = (
+    Index('idx_search_logs_user_created', 'user_id', 'created_at'),
+    Index('idx_search_logs_search_type', 'search_type'),
+    Index('idx_search_logs_response_time', 'response_time_ms'),
+)

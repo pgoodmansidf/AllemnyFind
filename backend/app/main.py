@@ -49,36 +49,24 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized successfully")
         
         # Create default admin user if none exists
-        from app.core.database import SessionLocal
-        from app.models.user import User, UserRole
-        from app.core.security import security
-        
-        db = SessionLocal()
         try:
-            admin_user = db.query(User).filter(User.username == "admin").first()
-            if not admin_user:
-                admin_user = User(
-                    username="admin",
-                    email="admin@allemny.com",
-                    hashed_password=security.get_password_hash("admin123"),
-                    full_name="System Administrator",
-                    role=UserRole.ADMIN,
-                    is_superuser=True,
-                    api_key=security.generate_api_key()
-                )
-                db.add(admin_user)
-                db.commit()
-                logger.info("Default admin user created (username: admin, password: admin123)")
+            from app.core.admin_setup import ensure_admin_exists, verify_admin_login
+
+            # Ensure admin user exists
+            admin_created = ensure_admin_exists()
+            if admin_created:
+                # Verify admin can login
+                login_verified = verify_admin_login()
+                if login_verified:
+                    logger.info("✅ Admin authentication system verified successfully")
+                else:
+                    logger.warning("⚠️ Admin user exists but login verification failed")
             else:
-                # Update existing admin to have admin role if needed
-                if not admin_user.role or admin_user.role == "standard":
-                    admin_user.role = UserRole.ADMIN
-                    db.commit()
-                    logger.info("Updated admin user role")
+                logger.error("❌ Failed to create or verify admin user")
+
         except Exception as e:
-            logger.error(f"Error creating/updating admin user: {e}")
-        finally:
-            db.close()
+            logger.error(f"Error setting up admin user: {e}")
+            # Continue startup even if admin creation fails
             
         logger.info("✅ POWERED UP! Application startup completed successfully")
         

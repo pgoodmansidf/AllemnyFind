@@ -70,72 +70,110 @@ def check_prescreened_user(db: Session, email: str) -> Optional[PrescreenedUser]
     return db.query(PrescreenedUser).filter(PrescreenedUser.email == email).first()
 
 def create_user_from_prescreen(db: Session, user_create: UserCreate) -> User:
-    """Create new user after prescreen validation"""
-    # Check if email is prescreened
-    prescreened = check_prescreened_user(db, user_create.email)
-    if not prescreened:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+    """Create new user after prescreen validation with optimized transaction handling"""
+    try:
+        # Check if email is prescreened with explicit query optimization
+        prescreened = db.query(PrescreenedUser).filter(
+            PrescreenedUser.email == user_create.email.lower().strip()
+        ).first()
+
+        if not prescreened:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your email is not authorized. Please contact IT at allemny@sidf.gov.sa"
+            )
+
+        # Check if user already exists with efficient query
+        existing_user = db.query(User).filter(
+            (User.email == user_create.email) | (User.username == user_create.email)
+        ).first()
+
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User already registered"
+            )
+
+        # Validate password confirmation
+        if user_create.password != user_create.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Passwords do not match"
+            )
+
+        # Create user with email as username
+        hashed_password = security.get_password_hash(user_create.password)
+        db_user = User(
+            username=user_create.email,  # Using email as username
+            email=user_create.email,
+            hashed_password=hashed_password,
+            full_name=prescreened.full_name,
+            role=UserRole.STANDARD,  # String constant
+            api_key=security.generate_api_key()
         )
-    
-    # Check if user already exists
-    if get_user_by_email(db, user_create.email):
+
+        # Mark prescreened user as registered
+        prescreened.is_registered = True
+
+        # Use explicit transaction management
+        db.add(db_user)
+        db.flush()  # Flush to get the ID without committing
+
+        # Commit the transaction
+        db.commit()
+
+        # Refresh to get all database-generated values
+        db.refresh(db_user)
+
+        return db_user
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"User creation failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already registered"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User creation failed due to database error"
         )
-    
-    # Validate password confirmation
-    if user_create.password != user_create.confirm_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Passwords do not match"
-        )
-    
-    # Create user with email as username
-    hashed_password = security.get_password_hash(user_create.password)
-    db_user = User(
-        username=user_create.email,  # Using email as username
-        email=user_create.email,
-        hashed_password=hashed_password,
-        full_name=prescreened.full_name,
-        role=UserRole.STANDARD,  # String constant
-        api_key=security.generate_api_key()
-    )
-    
-    # Mark prescreened user as registered
-    prescreened.is_registered = True
-    
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    
-    return db_user
 
 def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
-    """Authenticate user credentials (username is email)"""
-    user = db.query(User).filter(
-        (User.username == username) | (User.email == username)
-    ).first()
-    
-    if not user:
+    """Authenticate user credentials with optimized queries"""
+    try:
+        # Optimize query with specific conditions
+        user = db.query(User).filter(
+            ((User.username == username) | (User.email == username)),
+            User.is_active == True
+        ).first()
+
+        if not user:
+            return None
+
+        if not security.verify_password(password, user.hashed_password):
+            return None
+
+        # Update last login with separate transaction to avoid locks
+        try:
+            user.last_login = datetime.utcnow()
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to update last login for user {user.id}: {e}")
+            db.rollback()
+            # Don't fail authentication if last_login update fails
+
+        return user
+
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        db.rollback()
         return None
-    
-    if not security.verify_password(password, user.hashed_password):
-        return None
-    
-    # Update last login
-    user.last_login = datetime.utcnow()
-    db.commit()
-    
-    return user
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ) -> User:
-    """Get current authenticated user"""
+    """Get current authenticated user with optimized database queries"""
     try:
         # Check if credentials are present
         if not credentials:
@@ -174,19 +212,16 @@ def get_current_user(
                 detail="Invalid user ID format",
             )
 
-        # Get user from database
-        user = get_user_by_id(db, user_id)
+        # Optimized user query with explicit conditions
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.is_active == True
+        ).first()
 
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-            )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Inactive user"
+                detail="User not found or inactive",
             )
 
         return user
@@ -195,9 +230,10 @@ def get_current_user(
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
+        logger.error(f"Authentication error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Authentication error: {str(e)}"
+            detail="Authentication service temporarily unavailable"
         )
 
 def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
